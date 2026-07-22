@@ -43,7 +43,17 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .k{font-size:10px;letter-spacing:.14em;color:var(--dim)}
 .v{font-size:24px;font-variant-numeric:tabular-nums;line-height:1.15}
 .v.big{font-size:38px}
-.dmain{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:6px;overflow:hidden}
+.dmain{flex:1;display:flex;gap:8px;min-height:0;padding:6px;overflow:hidden}
+.dcircle{flex:1;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center}
+.dstats{flex:0 0 32%;max-width:300px;display:flex;flex-direction:column;
+  justify-content:center;gap:8px;text-align:center}
+.dstats>div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 6px}
+/* 縦画面ではラップ表示を円の上へ回す */
+@media (max-aspect-ratio:1/1){
+  .dmain{flex-direction:column-reverse}
+  .dstats{flex:0 0 auto;max-width:none;width:100%;flex-direction:row}
+  .dstats>div{flex:1}
+}
 #circle{display:block;max-width:100%;max-height:100%}
 .dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:8px}
 
@@ -156,12 +166,14 @@ dialog::backdrop{background:#000a}
     <button id="mute" style="padding:8px 10px">音 ON</button>
     <button id="dExit">終了</button>
   </header>
-  <div class="dtop">
-    <div><div class="k">LAP</div><div class="v big" id="dLap">--:--.---</div></div>
-    <div><div class="k">LAST</div><div class="v" id="dLast">--:--.---</div></div>
-    <div><div class="k">BEST</div><div class="v" id="dBest">--:--.---</div></div>
+  <div class="dmain">
+    <div class="dcircle"><canvas id="circle"></canvas></div>
+    <div class="dstats">
+      <div><div class="k">LAP</div><div class="v big" id="dLap">--:--.---</div></div>
+      <div><div class="k">BEST</div><div class="v" id="dBest">--:--.---</div></div>
+      <div><div class="k">LAST</div><div class="v" id="dLast">--:--.---</div></div>
+    </div>
   </div>
-  <div class="dmain"><canvas id="circle"></canvas></div>
   <div class="dtop">
     <div><div class="k">LATERAL G</div><div class="v" id="dLat">0.00</div></div>
     <div><div class="k">LONG G</div><div class="v" id="dLon">0.00</div></div>
