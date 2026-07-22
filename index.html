@@ -299,7 +299,7 @@ const S={role:null,room:store.get('room'),online:false,
   ch:null,best:null};
 
 /* ================= センサー ================= */
-let g=[0,0,9.81],fwd=null,ready=false;const LP=0.03;
+let g=[0,0,9.81],fwd=null,ready=false;
 let hAvg=[0,0,0];                 // 直近の水平加速度（デバイス座標）
 let acc=[0,0],fwdOK=false;        // 前方向の学習結果
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
@@ -329,12 +329,23 @@ function smooth(la,lo,now){
 function smoothReset(){SM.t=0;S.sLat=S.sLon=0}
 
 function onMotion(e){
-  const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
-  const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);   // 重力の追従は常時
-  if(!ready||!S.running)return;                              // 停止中はここまで
-  const gn=norm(g),lin=sub(v,g),h=sub(lin,scale(gn,dot(lin,gn)));
+  const ag=e.accelerationIncludingGravity;if(!ag||ag.x==null)return;
+  const inc=[ag.x,ag.y,ag.z];
+  /* 端末が重力を除いた加速度(e.acceleration)を出せるか。iOSや新しめのAndroidは可。
+     こちらはジャイロ併用の推定なので、一定Gが続いても減衰しない（今回の不具合の要因）。 */
+  const la=e.acceleration;
+  const hasLin=!!(la&&la.x!=null&&(Math.abs(la.x)+Math.abs(la.y)+Math.abs(la.z))>1e-4);
+  /* 重力ベクトルは「向き」の推定にだけ使う。真値が取れるときは inc-la（一定Gを含まない）を
+     使うので、旋回Gで重力方向が傾いてしまうこともない。取れなければ従来どおり inc を低域追従。 */
+  const grav=hasLin?[inc[0]-la.x,inc[1]-la.y,inc[2]-la.z]:inc;
+  const lp=hasLin?0.06:0.01;             // フォールバック時は遅くして一定Gの吸収を抑える
+  g=g.map((c,i)=>c*(1-lp)+grav[i]*lp);
+  if(!ready||!S.running)return;          // 停止中はここまで
+  const gn=norm(g);
+  /* 水平加速度：真の線形加速度があればそれを、無ければ重力差分（この場合のみ長時間Gは弱まる）*/
+  const lin=hasLin?[la.x,la.y,la.z]:sub(inc,g);
+  const h=sub(lin,scale(gn,dot(lin,gn)));
   hAvg=hAvg.map((c,i)=>c*0.85+h[i]*0.15);                    // GPS周期に合わせて平滑化
-  const [e1,e2]=horizBasis(gn);
   const f=fwd||norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));  // 学習前は背面カメラ方向で暫定
   const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
   S.lon=dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
