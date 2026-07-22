@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>G-LINK</title>
+<style>
+:root{
+  --bg:#0b0e13;--panel:#141a22;--line:#26313d;--txt:#e8eef5;--dim:#7b8b9c;
+  --accel:#2fd6a0;--brake:#ff5a4d;--lat:#ffc74a;--live:#4ea3ff;
+  --f-red:#e01a1a;--f-yellow:#ffd400;--f-black:#101010;--f-chk:#ffffff;--f-pit:#2f7dff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overscroll-behavior:none;
+  font-family:"Roboto Condensed","DIN Alternate","Helvetica Neue",system-ui,sans-serif}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.logo{font-weight:700;letter-spacing:.18em;font-size:13px}
+.badge{font-size:11px;letter-spacing:.1em;padding:3px 8px;border:1px solid var(--line);border-radius:99px;color:var(--dim)}
+.badge.on{color:var(--live);border-color:var(--live)}
+.spacer{flex:1}
+button{font:inherit;color:var(--txt);background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;letter-spacing:.04em}
+button:active{background:#1d2530}
+button.primary{background:var(--live);border-color:var(--live);color:#05121f;font-weight:700}
+input,select{width:100%;padding:10px;background:#0f141b;border:1px solid var(--line);
+  border-radius:8px;color:var(--txt);font:inherit}
+label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:12px 0 4px}
+.hide{display:none!important}
+
+/* 起動画面 */
+#launch{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:24px;max-width:460px;margin:0 auto;width:100%}
+#launch h1{font-size:34px;letter-spacing:.22em;margin:0 0 4px}
+#launch p{color:var(--dim);margin:0;font-size:13px;line-height:1.6}
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.roles button{padding:22px 10px;font-size:15px;font-weight:700;letter-spacing:.1em}
+.roles button[aria-pressed="true"]{border-color:var(--live);color:var(--live)}
+
+/* ドライバー画面 */
+#driver{flex:1;display:flex;flex-direction:column;min-height:0}
+.dtop{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line);flex:0 0 auto}
+.dtop div{background:var(--bg);padding:8px 6px;text-align:center}
+.k{font-size:10px;letter-spacing:.14em;color:var(--dim)}
+.v{font-size:24px;font-variant-numeric:tabular-nums;line-height:1.15}
+.v.big{font-size:38px}
+.dmain{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:6px}
+#circle{width:min(94vw,58vh);height:min(94vw,58vh)}
+.dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:8px}
+
+/* 監督画面 */
+#coach{flex:1;display:grid;grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto;min-height:0;gap:8px;padding:8px}
+@media(min-width:900px){#coach{grid-template-columns:1.2fr 1fr;grid-template-rows:auto 1fr auto}
+  #cmap{grid-row:1/3}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;min-height:0}
+.card h2{font-size:11px;letter-spacing:.16em;color:var(--dim);margin:0 0 8px;font-weight:600}
+#map,#dmapMini{width:100%;display:block;border-radius:8px;background:#0f141b}
+.laps{max-height:180px;overflow:auto;font-variant-numeric:tabular-nums;font-size:14px}
+.laps table{width:100%;border-collapse:collapse}
+.laps td{padding:4px 6px;border-bottom:1px solid var(--line)}
+.laps td:last-child{text-align:right;color:var(--dim)}
+.laps tr.best td{color:var(--accel)}
+.flags{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.flags button{padding:16px 6px;font-weight:700;letter-spacing:.08em}
+.f-red{background:var(--f-red);border-color:var(--f-red);color:#fff}
+.f-yellow{background:var(--f-yellow);border-color:var(--f-yellow);color:#111}
+.f-black{background:#000;border-color:#555;color:#fff}
+.f-chk{background:repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/14px 14px;color:#fff;text-shadow:0 0 4px #000;border-color:#888}
+.f-pit{background:var(--f-pit);border-color:var(--f-pit);color:#fff}
+.f-clear{background:var(--panel)}
+.send{display:flex;gap:8px;margin-top:8px}
+.send input{flex:1}
+.msgs{margin-top:8px;font-size:13px;color:var(--dim);max-height:80px;overflow:auto}
+
+/* フラッグ全画面表示 */
+#signal{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:10px;font-weight:800}
+#signal .t{font-size:min(18vw,120px);letter-spacing:.08em}
+#signal .s{font-size:min(5vw,22px);letter-spacing:.2em;opacity:.85}
+#signal button{margin-top:18px}
+.blink{animation:bl 1s steps(2,end) infinite}
+@keyframes bl{50%{opacity:.35}}
+#toast{position:fixed;left:50%;top:60px;transform:translateX(-50%) translateY(-200%);
+  background:var(--live);color:#05121f;font-weight:700;padding:14px 20px;border-radius:12px;
+  max-width:88vw;text-align:center;font-size:18px;transition:transform .3s;z-index:30}
+#toast.show{transform:translateX(-50%) translateY(0)}
+dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(92vw,420px)}
+dialog::backdrop{background:#000a}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- 起動画面 -->
+<section id="launch">
+  <div>
+    <h1>G-LINK</h1>
+    <p>走行Gとコース上の位置をリアルタイムで共有します。ドライバーは走行画面、監督はモニター画面を開いてください。</p>
+  </div>
+  <div class="roles">
+    <button id="pickDriver" aria-pressed="false">ドライバー</button>
+    <button id="pickCoach" aria-pressed="false">監督</button>
+  </div>
+  <div>
+    <label>ルームコード（チームで共通）</label>
+    <div style="display:flex;gap:8px">
+      <input id="fRoom" placeholder="例: K7RQ92" autocapitalize="characters" maxlength="10">
+      <button id="gen" style="flex:0 0 auto">発行</button>
+    </div>
+    <p style="margin-top:8px;font-size:12px">コードを発行して、チーム内で共有してください。設定はこれだけです。</p>
+    <div id="qrBox" class="hide" style="text-align:center;margin-top:12px">
+      <canvas id="qr" style="border-radius:10px;background:#fff;padding:8px"></canvas>
+      <p style="margin:8px 0 0;font-size:12px">カメラで読み取ると、コード入力済みで開きます。</p>
+      <button id="share" style="margin-top:8px">リンクを共有</button>
+    </div>
+  </div>
+  <button id="enter" class="primary">開始</button>
+</section>
+
+<!-- ドライバー画面 -->
+<section id="driver" class="hide">
+  <header>
+    <span class="logo">DRIVER</span>
+    <span class="badge" id="dRoom">room —</span>
+    <span class="spacer"></span>
+    <button id="dExit">終了</button>
+  </header>
+  <div class="dtop">
+    <div><div class="k">LAP</div><div class="v big" id="dLap">--:--.---</div></div>
+    <div><div class="k">LAST</div><div class="v" id="dLast">--:--.---</div></div>
+    <div><div class="k">BEST</div><div class="v" id="dBest">--:--.---</div></div>
+  </div>
+  <div class="dmain"><canvas id="circle"></canvas></div>
+  <div class="dtop">
+    <div><div class="k">LATERAL G</div><div class="v" id="dLat">0.00</div></div>
+    <div><div class="k">LONG G</div><div class="v" id="dLon">0.00</div></div>
+    <div><div class="k">km/h</div><div class="v" id="dSpd">--</div></div>
+  </div>
+  <div class="dbar">
+    <button id="btnStart" class="primary">計測開始</button>
+    <button id="btnFwd">前方向をセット</button>
+    <button id="btnSF">S/F地点を登録</button>
+    <button id="btnCsv">CSV出力</button>
+  </div>
+</section>
+
+<!-- 監督画面 -->
+<section id="coach" class="hide">
+  <header style="grid-column:1/-1">
+    <span class="logo">PIT WALL</span>
+    <span class="badge" id="cRoom">room —</span>
+    <span class="badge" id="cLive">待機中</span>
+    <span class="spacer"></span>
+    <button id="cExit">終了</button>
+  </header>
+  <div class="card" id="cmap">
+    <h2>コースマップ</h2>
+    <canvas id="map"></canvas>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;text-align:center">
+      <div><div class="k">現在ラップ</div><div class="v" id="cLap">--:--.---</div></div>
+      <div><div class="k">km/h</div><div class="v" id="cSpd">--</div></div>
+      <div><div class="k">合成G</div><div class="v" id="cG">0.00</div></div>
+      <div><div class="k">周回</div><div class="v" id="cCount">0</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>ラップタイム</h2>
+    <div class="laps"><table id="lapTable"></table></div>
+  </div>
+  <div class="card" style="grid-column:1/-1">
+    <h2>指示</h2>
+    <div class="flags">
+      <button class="f-red" data-sig="RED">赤旗</button>
+      <button class="f-yellow" data-sig="YELLOW">黄旗</button>
+      <button class="f-black" data-sig="BLACK">黒旗</button>
+      <button class="f-chk" data-sig="CHECKER">チェッカー</button>
+      <button class="f-pit" data-sig="PIT">ピットイン</button>
+      <button class="f-clear" data-sig="CLEAR">解除</button>
+    </div>
+    <div class="send">
+      <input id="msgInput" placeholder="アドバイスを入力" maxlength="60">
+      <button id="msgSend" class="primary">送信</button>
+    </div>
+    <div class="msgs" id="msgLog"></div>
+  </div>
+</section>
+
+<div id="signal" class="hide"><div class="t"></div><div class="s"></div><button id="sigAck">確認</button></div>
+<div id="toast"></div>
+
+<script type="module">
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const store={get:(k,d='')=>{try{return localStorage.getItem(k)??d}catch{return d}},
+             set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}}};
+
+const S={role:null,room:store.get('room'),online:false,
+  lat:0,lon:0,speed:null,pos:null,peak:0,running:false,
+  trail:[],track:[],log:[],laps:[],lapStart:null,sf:store.get('sf')?JSON.parse(store.get('sf')):null,
+  wasNear:false,ch:null,best:null};
+
+/* ================= センサー ================= */
+let g=[0,0,9.81],fwd=null,ready=false;const LP=0.03;
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const sub=(a,b)=>a.map((v,i)=>v-b[i]);
+const scale=(a,s)=>a.map(v=>v*s);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const norm=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n)};
+
+function onMotion(e){
+  const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
+  const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);
+  if(!ready)return;
+  const gn=norm(g),lin=sub(v,g),h=sub(lin,scale(gn,dot(lin,gn)));
+  const f=fwd||[0,0,-1];
+  const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
+  S.lon=-dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
+  const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;
+  const t=performance.now();S.trail.push([t,S.lat,S.lon]);
+  while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
+  if(S.running)S.log.push([Date.now(),S.lat.toFixed(3),S.lon.toFixed(3),S.speed??'',
+    S.pos?S.pos.lat.toFixed(6):'',S.pos?S.pos.lng.toFixed(6):'']);
+}
+
+async function startSensors(){
+  if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){
+    if(await DeviceMotionEvent.requestPermission()!=='granted'){toast('センサーが許可されていません');return false}
+  }
+  addEventListener('devicemotion',onMotion);
+  navigator.geolocation?.watchPosition(p=>{
+    S.speed=p.coords.speed==null?null:Math.round(p.coords.speed*3.6);
+    S.pos={lat:p.coords.latitude,lng:p.coords.longitude};
+    S.track.push([S.pos.lat,S.pos.lng]);
+    if(S.track.length>4000)S.track.shift();
+    checkLap();
+  },()=>{},{enableHighAccuracy:true,maximumAge:0,timeout:10000});
+  ready=true;return true;
+}
+
+/* ================= ラップ計測 ================= */
+const R_EARTH=6378137, SF_RADIUS=25, MIN_LAP=20000;
+function distM(a,b){
+  const dy=(b.lat-a.lat)*Math.PI/180*R_EARTH;
+  const dx=(b.lng-a.lng)*Math.PI/180*R_EARTH*Math.cos(a.lat*Math.PI/180);
+  return Math.hypot(dx,dy);
+}
+function checkLap(){
+  if(!S.sf||!S.pos)return;
+  const near=distM(S.sf,S.pos)<SF_RADIUS, now=Date.now();
+  if(near&&!S.wasNear){
+    if(S.lapStart&&now-S.lapStart>MIN_LAP){
+      const t=now-S.lapStart;S.laps.push(t);
+      if(S.best==null||t<S.best)S.best=t;
+      pushLap(t);
+    }
+    S.lapStart=now;
+  }
+  S.wasNear=near;
+}
+const fmt=ms=>ms==null?'--:--.---':
+  `${Math.floor(ms/60000)}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
+function pushLap(t){
+  if(S.role==='driver'){
+    $('#dLast').textContent=fmt(t);$('#dBest').textContent=fmt(S.best);
+    net.send('lap',{n:S.laps.length,t,best:S.best});
+  }
+  renderLaps();
+}
+function renderLaps(){
+  const tb=$('#lapTable');if(!tb)return;
+  tb.innerHTML=S.laps.map((t,i)=>
+    `<tr class="${t===S.best?'best':''}"><td>${String(i+1).padStart(2,'0')}</td>
+     <td>${fmt(t)}</td><td>${S.best&&t!==S.best?'+'+((t-S.best)/1000).toFixed(3):'BEST'}</td></tr>`
+  ).reverse().join('');
+  $('#cCount')&&($('#cCount').textContent=S.laps.length);
+}
+
+/* ================= 描画: Gサークル ================= */
+const cv=$('#circle'),cx=cv.getContext('2d');
+function resizeC(){const d=devicePixelRatio||1,w=cv.clientWidth;cv.width=w*d;cv.height=w*d;cx.setTransform(d,0,0,d,0,0)}
+const clamp=v=>Math.max(-1.5,Math.min(1.5,v));
+function drawCircle(){
+  if(S.role!=='driver'){requestAnimationFrame(drawCircle);return}
+  const w=cv.clientWidth||300,c=w/2,R=w/2-18,MAX=1.5;
+  cx.clearRect(0,0,w,w);
+  cx.strokeStyle='#26313d';cx.fillStyle='#7b8b9c';cx.font='11px sans-serif';cx.textAlign='center';
+  for(const r of [0.5,1,1.5]){cx.beginPath();cx.arc(c,c,R*r/MAX,0,7);cx.lineWidth=r===1?1.6:1;cx.stroke();
+    cx.fillText(r.toFixed(1)+'G',c,c-R*r/MAX+13)}
+  cx.beginPath();cx.moveTo(c-R,c);cx.lineTo(c+R,c);cx.moveTo(c,c-R);cx.lineTo(c,c+R);cx.lineWidth=1;cx.stroke();
+  cx.fillStyle='#3d4c5c';cx.fillText('加速',c,c-R-4);cx.fillText('減速',c,c+R+13);
+  if(S.peak>0){cx.beginPath();cx.arc(c,c,R*Math.min(S.peak,MAX)/MAX,0,7);
+    cx.strokeStyle='#5b6b7d';cx.setLineDash([4,6]);cx.stroke();cx.setLineDash([])}
+  const now=performance.now();
+  for(const [t,la,lo] of S.trail){const age=(now-t)/3000;
+    cx.beginPath();cx.arc(c+R*clamp(la)/MAX,c-R*clamp(lo)/MAX,2.2,0,7);
+    cx.fillStyle=`rgba(120,160,200,${(1-age)*.5})`;cx.fill()}
+  const x=c+R*clamp(S.lat)/MAX,y=c-R*clamp(S.lon)/MAX;
+  const col=S.lon<-.05?'--brake':S.lon>.05?'--accel':'--lat';
+  const rgb=getComputedStyle(document.documentElement).getPropertyValue(col);
+  cx.beginPath();cx.moveTo(c,c);cx.lineTo(x,y);cx.strokeStyle=rgb;cx.lineWidth=2;cx.stroke();
+  cx.beginPath();cx.arc(x,y,11,0,7);cx.fillStyle=rgb;cx.fill();
+  $('#dLat').textContent=Math.abs(S.lat).toFixed(2);
+  $('#dLon').textContent=(S.lon>=0?'+':'')+S.lon.toFixed(2);
+  $('#dSpd').textContent=S.speed??'--';
+  $('#dLap').textContent=S.lapStart?fmt(Date.now()-S.lapStart):'--:--.---';
+  requestAnimationFrame(drawCircle);
+}
+
+/* ================= 描画: コースマップ ================= */
+const mp=$('#map'),mx=mp?.getContext('2d');
+function drawMap(){
+  if(S.role!=='coach'||!mx){requestAnimationFrame(drawMap);return}
+  const w=mp.clientWidth,h=Math.round(w*0.62),d=devicePixelRatio||1;
+  if(mp.width!==w*d){mp.width=w*d;mp.height=h*d;mp.style.height=h+'px'}
+  mx.setTransform(d,0,0,d,0,0);mx.clearRect(0,0,w,h);
+  if(S.track.length<2){mx.fillStyle='#3d4c5c';mx.font='13px sans-serif';mx.textAlign='center';
+    mx.fillText('走行ラインを記録中…',w/2,h/2);requestAnimationFrame(drawMap);return}
+  const lat0=S.track[0][0],k=Math.cos(lat0*Math.PI/180);
+  const pts=S.track.map(([la,ln])=>[ln*k,la]);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  for(const [x,y] of pts){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
+  const pad=18,sc=Math.min((w-pad*2)/((x1-x0)||1e-6),(h-pad*2)/((y1-y0)||1e-6));
+  const px=p=>[(p[0]-x0)*sc+pad+ (w-pad*2-(x1-x0)*sc)/2,
+               h-((p[1]-y0)*sc+pad)-(h-pad*2-(y1-y0)*sc)/2];
+  mx.lineWidth=6;mx.lineJoin='round';mx.strokeStyle='#1e2833';
+  mx.beginPath();pts.forEach((p,i)=>{const [a,b]=px(p);i?mx.lineTo(a,b):mx.moveTo(a,b)});mx.stroke();
+  mx.lineWidth=3;mx.strokeStyle='#4ea3ff';mx.stroke();
+  if(S.sf){const [a,b]=px([S.sf.lng*k,S.sf.lat]);
+    mx.fillStyle='#fff';mx.fillRect(a-6,b-2,12,4);mx.fillStyle='#111';mx.fillRect(a-6,b-2,6,2);mx.fillRect(a,b,6,2)}
+  const [a,b]=px(pts[pts.length-1]);
+  mx.beginPath();mx.arc(a,b,7,0,7);mx.fillStyle='#ffc74a';mx.fill();
+  $('#cLap').textContent=S.lapStart?fmt(Date.now()-S.lapStart):'--:--.---';
+  $('#cSpd').textContent=S.speed??'--';
+  $('#cG').textContent=Math.hypot(S.lat,S.lon).toFixed(2);
+  requestAnimationFrame(drawMap);
+}
+
+/* ================= 通信 ================= */
+const SIGNALS={
+  RED:{t:'赤旗',s:'走行中止・徐行',bg:'var(--f-red)',fg:'#fff'},
+  YELLOW:{t:'黄旗',s:'追い越し禁止・減速',bg:'var(--f-yellow)',fg:'#111'},
+  BLACK:{t:'黒旗',s:'ただちにピットへ',bg:'#000',fg:'#fff'},
+  CHECKER:{t:'チェッカー',s:'セッション終了',bg:'#fff',fg:'#111'},
+  PIT:{t:'PIT IN',s:'次の周でピットイン',bg:'var(--f-pit)',fg:'#fff'},
+};
+/* 中継サーバー（Cloudflare Workers）へWebSocketで接続。
+   利用者が入力するのはルームコードだけ。 */
+const SERVER='wss://glink.ibc-tanzawa.workers.dev';
+const net={
+  ws:null,queue:[],
+  open(){return this.ws&&this.ws.readyState===1},
+  send(event,payload){
+    const msg=JSON.stringify({event,payload,ts:Date.now()});
+    if(!this.open()){
+      // 切断中はバッファ。テレメトリは捨て、指示系だけ残す
+      if(event!=='tel'){this.queue.push(msg);if(this.queue.length>50)this.queue.shift()}
+      return;
+    }
+    try{this.ws.send(msg)}catch{}
+  },
+  flush(){const q=this.queue;this.queue=[];q.forEach(m=>{try{this.ws.send(m)}catch{}})},
+};
+
+/* 監督側：受信フレームを100msごとに1つ取り出して再生する（ジッター吸収） */
+const rx=[];
+setInterval(()=>{
+  if(S.role!=='coach'||!rx.length)return;
+  const [la,lo,sp]=rx.shift();
+  S.lat=la;S.lon=lo;S.speed=sp;
+  const m=Math.hypot(la,lo);if(m>S.peak)S.peak=m;
+  S.trail.push([performance.now(),la,lo]);
+  const t=performance.now();
+  while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
+},100);
+
+function handle(msg){
+  const {event,payload}=msg;
+  if(event==='tel'&&S.role==='coach'){
+    S.lapStart=payload.ls;
+    if(payload.p){S.pos={lat:payload.p[0],lng:payload.p[1]};S.track.push(payload.p);
+      if(S.track.length>4000)S.track.shift()}
+    if(payload.sf)S.sf={lat:payload.sf[0],lng:payload.sf[1]};
+    for(const f of payload.f||[])rx.push(f);
+    if(rx.length>25)rx.splice(0,rx.length-25);   // 遅れたら間引いて追いつく
+  }
+  else if(event==='lap'&&S.role==='coach'){
+    S.laps[payload.n-1]=payload.t;S.best=payload.best;renderLaps();
+  }
+  else if(event==='sig'&&S.role==='driver')showSignal(payload.code);
+  else if(event==='msg'&&S.role==='driver'){toast(payload.text);navigator.vibrate?.([100,60,100])}
+}
+
+function status(on,label){
+  S.online=on;
+  $$('#dRoom,#cRoom').forEach(e=>{e.textContent='room '+S.room;e.classList.toggle('on',on)});
+  const l=$('#cLive');if(l){l.textContent=label;l.classList.toggle('on',on)}
+}
+
+function bind(){}
+
+let retry=0, lastRx=0;
+function connect(){
+  status(false,'接続中');
+  const ws=new WebSocket(SERVER+'/room/'+encodeURIComponent(S.room));
+  net.ws=ws;
+
+  ws.onopen=()=>{retry=0;status(true,S.role==='coach'?'待機中':'接続中');net.flush()};
+  ws.onmessage=e=>{
+    lastRx=Date.now();
+    let msg;try{msg=JSON.parse(e.data)}catch{return}
+    if(msg.event==='peers'){
+      const alone=msg.payload.n<2;
+      status(true,alone?(S.role==='coach'?'ドライバー待ち':'監督未接続'):'受信中');
+      return;
+    }
+    handle(msg);
+  };
+  ws.onclose=()=>{
+    status(false,'再接続中');
+    retry=Math.min(retry+1,6);
+    setTimeout(connect,Math.min(1000*2**retry,15000));   // 指数バックオフ
+  };
+  ws.onerror=()=>{try{ws.close()}catch{}};
+
+  if(S.role==='driver'&&!connect.timer){
+    // 10Hzでサンプリングし、2Hzでまとめて送る。
+    // 送信回数は2Hzのまま、監督側は10Hzのなめらかさで再生できる。
+    const buf=[];
+    connect.sampler=setInterval(()=>{
+      if(!ready)return;
+      buf.push([+S.lat.toFixed(3),+S.lon.toFixed(3),S.speed]);
+      if(buf.length>20)buf.shift();
+    },100);
+    connect.timer=setInterval(()=>{
+      if(!ready||!buf.length)return;
+      net.send('tel',{f:buf.splice(0),ls:S.lapStart,
+        p:S.pos?[+S.pos.lat.toFixed(6),+S.pos.lng.toFixed(6)]:null,
+        sf:S.sf?[S.sf.lat,S.sf.lng]:null});
+    },500);
+  }
+}
+
+/* ================= 合図表示（ドライバー） ================= */
+function showSignal(code){
+  const el=$('#signal');
+  if(code==='CLEAR'){el.classList.add('hide');return}
+  const c=SIGNALS[code];if(!c)return;
+  el.style.background=c.bg;el.style.color=c.fg;
+  el.querySelector('.t').textContent=c.t;el.querySelector('.s').textContent=c.s;
+  el.classList.remove('hide');
+  el.classList.toggle('blink',code==='PIT'||code==='YELLOW');
+  if(code==='CHECKER')el.style.background='repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/40px 40px';
+  navigator.vibrate?.(code==='RED'||code==='BLACK'?[300,120,300,120,300]:[200,100,200]);
+}
+$('#sigAck').onclick=()=>$('#signal').classList.add('hide');
+
+let tid;function toast(m){const el=$('#toast');el.textContent=m;el.classList.add('show');
+  clearTimeout(tid);tid=setTimeout(()=>el.classList.remove('show'),5000)}
+
+/* ================= 起動 ================= */
+$('#fRoom').value=S.room;
+// URLの #r=CODE でコードを引き継ぐ（QRから開いたとき）
+const hash=new URLSearchParams(location.hash.slice(1));
+if(hash.get('r'))$('#fRoom').value=hash.get('r').toUpperCase();
+
+const shareURL=()=>location.origin+location.pathname+'#r='+$('#fRoom').value;
+async function renderQR(){
+  const code=$('#fRoom').value.trim();
+  $('#qrBox').classList.toggle('hide',code.length<4);
+  if(code.length<4)return;
+  try{
+    const QR=(await import('https://esm.sh/qrcode@1.5.3')).default;
+    await QR.toCanvas($('#qr'),shareURL(),{width:180,margin:1,
+      color:{dark:'#0b0e13',light:'#ffffff'}});
+  }catch{$('#qrBox').classList.add('hide')}   // オフライン時はコード手入力で運用
+}
+$('#share').onclick=async()=>{
+  const data={title:'G-LINK',text:'ルームコード '+$('#fRoom').value,url:shareURL()};
+  try{ navigator.share?await navigator.share(data)
+       :await navigator.clipboard.writeText(shareURL())&&toast('リンクをコピーしました') }catch{}
+};
+// 紛らわしい文字（0/O/1/I）を除いた6文字
+$('#gen').onclick=()=>{
+  const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  $('#fRoom').value=[...crypto.getRandomValues(new Uint8Array(6))].map(v=>A[v%A.length]).join('');
+  renderQR();
+};
+$('#fRoom').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase();renderQR()});
+renderQR();
+$('#pickDriver').onclick=()=>setRole('driver');
+$('#pickCoach').onclick=()=>setRole('coach');
+function setRole(r){S.role=r;
+  $('#pickDriver').setAttribute('aria-pressed',r==='driver');
+  $('#pickCoach').setAttribute('aria-pressed',r==='coach')}
+$('#enter').onclick=async()=>{
+  if(!S.role){toast('役割を選んでください');return}
+  S.room=$('#fRoom').value.trim().toUpperCase();
+  if(!S.room){toast('ルームコードを入力してください');return}
+  store.set('room',S.room);
+  $('#launch').classList.add('hide');
+  $(S.role==='driver'?'#driver':'#coach').classList.remove('hide');
+  if(S.role==='driver'){resizeC();await startSensors()}
+  connect();
+};
+$('#dExit').onclick=$('#cExit').onclick=()=>location.reload();
+addEventListener('resize',()=>{if(S.role==='driver')resizeC()});
+
+/* ドライバー操作 */
+$('#btnStart').onclick=async e=>{
+  if(!ready&&!await startSensors())return;
+  S.running=!S.running;e.target.textContent=S.running?'計測停止':'計測開始';
+  if(S.running&&!S.lapStart)S.lapStart=Date.now();
+};
+$('#btnFwd').onclick=()=>{const gn=norm(g);
+  fwd=norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));S.peak=0;toast('現在の向きを前方に設定しました')};
+$('#btnSF').onclick=()=>{
+  if(!S.pos){toast('GPS測位を待っています');return}
+  S.sf={...S.pos};store.set('sf',JSON.stringify(S.sf));
+  S.lapStart=Date.now();S.wasNear=true;toast('S/F地点を登録しました');
+};
+$('#btnCsv').onclick=()=>{
+  if(!S.log.length){toast('記録データがありません');return}
+  const csv='time,lateral_g,longitudinal_g,speed_kmh,lat,lng\n'+S.log.map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='glink_'+new Date().toISOString().slice(0,19).replace(/[:T-]/g,'')+'.csv';a.click();
+};
+
+/* 監督操作 */
+$$('.flags button').forEach(b=>b.onclick=()=>{
+  net.send('sig',{code:b.dataset.sig});
+  logMsg('合図: '+b.textContent);
+});
+$('#msgSend').onclick=()=>{
+  const t=$('#msgInput').value.trim();if(!t)return;
+  net.send('msg',{text:t});
+  logMsg(t+(S.online?'':'（未接続 — 接続時に送信）'));$('#msgInput').value='';
+};
+$('#msgInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('#msgSend').click()});
+function logMsg(t){const d=document.createElement('div');
+  d.textContent=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'  '+t;
+  $('#msgLog').prepend(d)}
+
+drawCircle();drawMap();
+</script>
+</body>
+</html>
