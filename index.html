@@ -28,6 +28,18 @@ input,select{width:100%;padding:10px;background:#0f141b;border:1px solid var(--l
 label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:12px 0 4px}
 .hide{display:none!important}
 
+/* 表示設定シート */
+#opt{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:60;display:flex;align-items:flex-end}
+#opt .sheet{width:100%;max-width:520px;margin:0 auto;background:var(--panel);
+  border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;
+  padding:14px 18px calc(20px + env(safe-area-inset-bottom));max-height:82vh;overflow:auto}
+#opt h2{margin:0 0 4px;font-size:13px;letter-spacing:.14em;color:var(--dim)}
+#opt label b{float:right;color:var(--live);font-size:13px;letter-spacing:0}
+#opt input[type=range]{width:100%;accent-color:var(--live);padding:0;border:0;background:none}
+#opt .sw{display:flex;align-items:center;gap:10px;margin-top:14px}
+#opt .sw input{width:auto}
+#opt .note{color:var(--dim);font-size:11px;line-height:1.6;margin:10px 0 0}
+
 /* 起動画面 */
 #launch{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:24px;max-width:460px;margin:0 auto;width:100%}
 #launch h1{font-size:34px;letter-spacing:.22em;margin:0 0 4px}
@@ -182,7 +194,8 @@ dialog::backdrop{background:#000a}
   <div class="dbar">
     <button id="btnStart" class="primary">計測開始</button>
     <button id="btnFwd">0セット</button>
-    <button id="btnSF">S/F地点を登録</button>
+    <button id="btnSF">S/Fライン登録</button>
+  <button id="btnOpt" aria-label="表示設定">表示設定</button>
   </div>
 </section>
 
@@ -240,6 +253,22 @@ dialog::backdrop{background:#000a}
   </div>
 </section>
 
+<!-- 表示設定 -->
+<div id="opt" class="hide">
+  <div class="sheet">
+    <h2>表示設定<button id="optClose" style="float:right;padding:4px 12px;font-size:12px">閉じる</button></h2>
+    <label>なめらかさ（時定数）<b id="vTau"></b></label>
+    <input type="range" id="sTau" min="0.05" max="1" step="0.01">
+    <div class="sw"><input type="checkbox" id="sAdapt"><span style="font-size:13px">急な変化のときだけ素早く追従</span></div>
+    <label>サークル上限<b id="vMax"></b></label>
+    <input type="range" id="sMax" min="0.4" max="2.5" step="0.1">
+    <label>目盛リング<b id="vRing"></b></label>
+    <input type="range" id="sRing" min="2" max="5" step="1">
+    <button id="sfReset" style="width:100%;margin-top:16px">S/Fラインを消して自動検出に戻す</button>
+    <p class="note">なめらかさは表示だけに効きます。記録・最大G・監督への送信は生の値のままです。</p>
+  </div>
+</div>
+
 <div id="signal" class="hide"><div class="plate"><div class="t"></div><div class="s"></div></div><button id="sigAck">確認</button></div>
 <div id="toast"></div>
 
@@ -248,10 +277,15 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const store={get:(k,d='')=>{try{return localStorage.getItem(k)??d}catch{return d}},
              set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}}};
 
+const num=(k,d)=>{const v=parseFloat(store.get(k,''));return isFinite(v)?v:d};
 const S={role:null,room:store.get('room'),online:false,
   lat:0,lon:0,speed:null,pos:null,peak:0,running:false,
+  sLat:0,sLon:0,                                   // 表示用（平滑化後）。記録は生値を使う
+  tau:num('tau',.30),fastTau:num('ftau',.10),thr:num('thr',.30),
+  adapt:store.get('adapt','1')!=='0',
+  maxG:num('maxg',1.5),rings:num('rings',3),
   trail:[],track:[],log:[],laps:[],lapStart:null,sf:store.get('sf')?JSON.parse(store.get('sf')):null,
-  wasNear:false,ch:null,best:null};
+  ch:null,best:null};
 
 /* ================= センサー ================= */
 let g=[0,0,9.81],fwd=null,ready=false;const LP=0.03;
@@ -270,6 +304,19 @@ function horizBasis(gn){
   return [e1,cross(gn,e1)];
 }
 
+/* 表示用ローパス。取得レートは落とさず、描画と数値表示だけをまろやかにする。
+   係数を 1-exp(-dt/tau) で作るので、サンプル間隔が揺れても効き方が変わらない。 */
+const SM={t:0};
+function smooth(la,lo,now){
+  if(!SM.t){SM.t=now;S.sLat=la;S.sLon=lo;return}
+  const dt=Math.min((now-SM.t)/1000,0.1);SM.t=now;
+  let tau=S.tau;
+  if(S.adapt&&Math.hypot(la-S.sLat,lo-S.sLon)>S.thr)tau=S.fastTau;  // 急変時だけ短く
+  const a=1-Math.exp(-dt/tau);
+  S.sLat+=(la-S.sLat)*a;S.sLon+=(lo-S.sLon)*a;
+}
+function smoothReset(){SM.t=0;S.sLat=S.sLon=0}
+
 function onMotion(e){
   const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
   const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);   // 重力の追従は常時
@@ -280,8 +327,9 @@ function onMotion(e){
   const f=fwd||norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));  // 学習前は背面カメラ方向で暫定
   const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
   S.lon=dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
-  const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;
-  const t=performance.now();S.trail.push([t,S.lat,S.lon]);
+  const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;   // ピークは生値で判定
+  const t=performance.now();smooth(S.lat,S.lon,t);
+  S.trail.push([t,S.sLat,S.sLon]);
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
 }
 
@@ -322,30 +370,88 @@ async function startSensors(){
     S.track.push([S.pos.lat,S.pos.lng,S.speed,Math.hypot(S.lat,S.lon)]);
     if(S.track.length>4000)S.track.shift();
     learnForward(p);
-    checkLap();
+    checkLap(p);
   },()=>{},{enableHighAccuracy:true,maximumAge:0,timeout:10000});
   ready=true;return true;
 }
 
-/* ================= ラップ計測 ================= */
-const R_EARTH=6378137, SF_RADIUS=25, MIN_LAP=20000;
-function distM(a,b){
-  const dy=(b.lat-a.lat)*Math.PI/180*R_EARTH;
-  const dx=(b.lng-a.lng)*Math.PI/180*R_EARTH*Math.cos(a.lat*Math.PI/180);
-  return Math.hypot(dx,dy);
+/* ================= ラップ計測 =================
+   S/Fを「点＋半径25m」ではなく「線分」で判定する。半径判定はショートコースだと
+   別区間が円に入って誤検出するうえ、どこで入ったかも分からないため。
+   前サンプル→現サンプルの移動線分と交差した瞬間だけを1周とし、
+   交点の位置から通過時刻を補間するので、1Hz測位でも数十ms精度になる。 */
+const LAP={halfWidth:15,minTime:15000,minDist:200,maxAcc:15,armSpeed:8};
+const LT={org:null,prev:null,line:null,dir:null,last:null,dist:0};
+
+function ltOrigin(p){const r=6378137*Math.PI/180;
+  LT.org={lat:p.lat,lng:p.lng,kx:r*Math.cos(p.lat*Math.PI/180),ky:r}}
+const ltXY=p=>({x:(p.lng-LT.org.lng)*LT.org.kx,y:(p.lat-LT.org.lat)*LT.org.ky});
+const ltLL=v=>({lat:LT.org.lat+v.y/LT.org.ky,lng:LT.org.lng+v.x/LT.org.kx});
+
+/* 中心cと進行方向n（単位ベクトル）からS/Fラインを張る */
+function setSFLine(c,n,save){
+  const d={x:-n.y,y:n.x},w=LAP.halfWidth;
+  LT.line={c,n,A:{x:c.x-d.x*w,y:c.y-d.y*w},B:{x:c.x+d.x*w,y:c.y+d.y*w}};
+  const ll=ltLL(c);
+  S.sf={lat:ll.lat,lng:ll.lng,hdg:(Math.atan2(n.x,n.y)*180/Math.PI+360)%360,
+        a:ltLL(LT.line.A),b:ltLL(LT.line.B)};
+  if(save)store.set('sf',JSON.stringify(S.sf));
 }
-function checkLap(){
-  if(!S.running||!S.sf||!S.pos)return;
-  const near=distM(S.sf,S.pos)<SF_RADIUS, now=Date.now();
-  if(near&&!S.wasNear){
-    if(S.lapStart&&now-S.lapStart>MIN_LAP){
-      const t=now-S.lapStart;S.laps.push(t);
-      if(S.best==null||t<S.best)S.best=t;
-      pushLap(t);
+/* 保存済み・監督側で受信したS/F情報からラインを復元する */
+function restoreSF(){
+  if(!S.sf||!LT.org)return;
+  if(S.sf.hdg==null){S.sf=null;store.set('sf','');return}   // 旧形式（点のみ）は破棄
+  const h=S.sf.hdg*Math.PI/180;
+  setSFLine(ltXY(S.sf),{x:Math.sin(h),y:Math.cos(h)},false);
+}
+function clearSF(){
+  S.sf=null;LT.line=null;LT.last=null;LT.dist=0;S.lapStart=null;store.set('sf','');
+}
+/* 線分p→qと線分a→bの交点。戻り値はp→q上の位置（0〜1） */
+function segT(p,q,a,b){
+  const rx=q.x-p.x,ry=q.y-p.y,sx=b.x-a.x,sy=b.y-a.y;
+  const den=rx*sy-ry*sx;if(Math.abs(den)<1e-9)return null;   // 平行
+  const ox=a.x-p.x,oy=a.y-p.y;
+  const t=(ox*sy-oy*sx)/den,u=(ox*ry-oy*rx)/den;
+  return (t<0||t>1||u<0||u>1)?null:t;
+}
+function resetLapState(){LT.prev=null;LT.last=null;LT.dist=0;LT.dir=null}
+
+function checkLap(p){
+  if(!S.running)return;
+  const acc=p.coords.accuracy;
+  if(acc!=null&&acc>LAP.maxAcc)return;                  // 精度の悪い測位は判定に使わない
+  const here={lat:p.coords.latitude,lng:p.coords.longitude};
+  if(!LT.org){ltOrigin(here);restoreSF()}
+  const c=ltXY(here);c.t=p.timestamp||Date.now();
+  const prev=LT.prev;LT.prev=c;
+  if(!prev||c.t<=prev.t)return;
+
+  const step=Math.hypot(c.x-prev.x,c.y-prev.y);
+  LT.dist+=step;
+  if(step>0.5)LT.dir={x:(c.x-prev.x)/step,y:(c.y-prev.y)/step};
+
+  if(!LT.line){                    // 未設定なら、走り出した地点に自動で張る
+    const v=p.coords.speed!=null?p.coords.speed:step/((c.t-prev.t)/1000);
+    if(v>=LAP.armSpeed&&LT.dir){
+      setSFLine({x:c.x,y:c.y},LT.dir,false);
+      LT.last=c.t;LT.dist=0;S.lapStart=c.t;
+      toast('走り出した地点をS/Fラインにしました');
     }
-    S.lapStart=now;
+    return;
   }
-  S.wasNear=near;
+  // 逆走やライン付近での往復を拾わないよう、正方向の通過だけを見る
+  if((c.x-prev.x)*LT.line.n.x+(c.y-prev.y)*LT.line.n.y<=0)return;
+  const t=segT(prev,c,LT.line.A,LT.line.B);
+  if(t===null)return;
+  const tc=prev.t+(c.t-prev.t)*t;                       // 通過時刻を線形補間
+  if(LT.last!=null&&(tc-LT.last<LAP.minTime||LT.dist<LAP.minDist))return;
+  if(LT.last!=null){
+    const lap=tc-LT.last;S.laps.push(lap);
+    if(S.best==null||lap<S.best)S.best=lap;
+    pushLap(lap);
+  }
+  LT.last=tc;LT.dist=0;S.lapStart=tc;
 }
 const fmt=ms=>ms==null?'--:--.---':
   `${Math.floor(ms/60000)}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
@@ -377,14 +483,16 @@ function resizeC(){
 // 画面の回転やアドレスバーの伸縮でも崩れないよう、実寸の変化を監視する
 if(window.ResizeObserver)new ResizeObserver(()=>{if(S.role==='driver')resizeC()})
   .observe(cv.parentElement);
-const clamp=v=>Math.max(-1.5,Math.min(1.5,v));
+const clamp=v=>Math.max(-S.maxG,Math.min(S.maxG,v));
+const fmtG=g=>(g<1?g.toFixed(2).replace(/0$/,''):g.toFixed(1))+'G';
 function drawCircle(){
   if(S.role!=='driver'){requestAnimationFrame(drawCircle);return}
-  const w=cv.clientWidth||300,c=w/2,R=w/2-18,MAX=1.5;
+  const w=cv.clientWidth||300,c=w/2,R=w/2-18,MAX=S.maxG;
   cx.clearRect(0,0,w,w);
   cx.strokeStyle='#26313d';cx.fillStyle='#7b8b9c';cx.font='11px sans-serif';cx.textAlign='center';
-  for(const r of [0.5,1,1.5]){cx.beginPath();cx.arc(c,c,R*r/MAX,0,7);cx.lineWidth=r===1?1.6:1;cx.stroke();
-    cx.fillText(r.toFixed(1)+'G',c,c-R*r/MAX+13)}
+  for(let i=1;i<=S.rings;i++){const r=MAX*i/S.rings;
+    cx.beginPath();cx.arc(c,c,R*r/MAX,0,7);cx.lineWidth=i===S.rings?1.6:1;cx.stroke();
+    cx.fillText(fmtG(r),c,c-R*r/MAX+13)}
   cx.beginPath();cx.moveTo(c-R,c);cx.lineTo(c+R,c);cx.moveTo(c,c-R);cx.lineTo(c,c+R);cx.lineWidth=1;cx.stroke();
   cx.fillStyle='#3d4c5c';cx.fillText('加速',c,c-R-4);cx.fillText('減速',c,c+R+13);
   if(S.peak>0){cx.beginPath();cx.arc(c,c,R*Math.min(S.peak,MAX)/MAX,0,7);
@@ -393,13 +501,13 @@ function drawCircle(){
   for(const [t,la,lo] of S.trail){const age=(now-t)/3000;
     cx.beginPath();cx.arc(c+R*clamp(la)/MAX,c-R*clamp(lo)/MAX,2.2,0,7);
     cx.fillStyle=`rgba(120,160,200,${(1-age)*.5})`;cx.fill()}
-  const x=c+R*clamp(S.lat)/MAX,y=c-R*clamp(S.lon)/MAX;
-  const col=S.lon<-.05?'--brake':S.lon>.05?'--accel':'--lat';
+  const x=c+R*clamp(S.sLat)/MAX,y=c-R*clamp(S.sLon)/MAX;
+  const col=S.sLon<-.05?'--brake':S.sLon>.05?'--accel':'--lat';
   const rgb=getComputedStyle(document.documentElement).getPropertyValue(col);
   cx.beginPath();cx.moveTo(c,c);cx.lineTo(x,y);cx.strokeStyle=rgb;cx.lineWidth=2;cx.stroke();
   cx.beginPath();cx.arc(x,y,11,0,7);cx.fillStyle=rgb;cx.fill();
-  $('#dLat').textContent=Math.abs(S.lat).toFixed(2);
-  $('#dLon').textContent=(S.lon>=0?'+':'')+S.lon.toFixed(2);
+  $('#dLat').textContent=Math.abs(S.sLat).toFixed(2);
+  $('#dLon').textContent=(S.sLon>=0?'+':'')+S.sLon.toFixed(2);
   $('#dSpd').textContent=S.speed??'--';
   $('#dLap').textContent=S.lapStart?fmt(Date.now()-S.lapStart):'--:--.---';
   requestAnimationFrame(drawCircle);
@@ -457,10 +565,10 @@ function updateLeaflet(){
   lbuckets.forEach((pl,i)=>pl.setLatLngs(groups[i]));
   renderLegend(max);
   if(S.pos)lmark.setLatLng([S.pos.lat,S.pos.lng]);
-  if(S.sf){
-    if(!lsf)lsf=L.circleMarker([S.sf.lat,S.sf.lng],{radius:6,weight:2,
-      color:'#fff',fillColor:'#111',fillOpacity:1}).addTo(lmap).bindTooltip('S/F');
-    else lsf.setLatLng([S.sf.lat,S.sf.lng]);
+  if(S.sf&&S.sf.a){
+    const seg=[[S.sf.a.lat,S.sf.a.lng],[S.sf.b.lat,S.sf.b.lng]];
+    if(!lsf)lsf=L.polyline(seg,{color:'#fff',weight:5}).addTo(lmap).bindTooltip('S/F');
+    else lsf.setLatLngs(seg);
   }
   if(!fitted&&S.track.length>4){fitted=true;fitMap()}
 }
@@ -506,8 +614,11 @@ function drawMap(){
     mx.beginPath();mx.moveTo(ax,ay);mx.lineTo(bx,by);mx.stroke();
   }
   renderLegend(max);
-  if(S.sf){const [a,b]=px([S.sf.lng*k,S.sf.lat]);
-    mx.fillStyle='#fff';mx.fillRect(a-6,b-2,12,4);mx.fillStyle='#111';mx.fillRect(a-6,b-2,6,2);mx.fillRect(a,b,6,2)}
+  if(S.sf&&S.sf.a){
+    const [ax,ay]=px([S.sf.a.lng*k,S.sf.a.lat]),[bx,by]=px([S.sf.b.lng*k,S.sf.b.lat]);
+    mx.strokeStyle='#fff';mx.lineWidth=3;mx.lineCap='butt';
+    mx.beginPath();mx.moveTo(ax,ay);mx.lineTo(bx,by);mx.stroke();mx.lineCap='round';
+  }
   const [a,b]=px(pts[pts.length-1]);
   mx.beginPath();mx.arc(a,b,7,0,7);mx.fillStyle='#fff';mx.fill();
   $('#cLap').textContent=S.lapStart?fmt(Date.now()-S.lapStart):'--:--.---';
@@ -552,8 +663,8 @@ setInterval(()=>{
   const [la,lo,sp]=rx.shift();
   S.lat=la;S.lon=lo;S.speed=sp;
   const m=Math.hypot(la,lo);if(m>S.peak)S.peak=m;
-  S.trail.push([performance.now(),la,lo]);
-  const t=performance.now();
+  const t=performance.now();smooth(la,lo,t);
+  S.trail.push([t,S.sLat,S.sLon]);
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
   // 走行記録は監督端末に残す（10Hz）
   if(S.log.length<400000)S.log.push([new Date().toISOString(),S.laps.length+1,
@@ -572,7 +683,14 @@ function handle(msg){
         last?last[2]:S.speed, last?Math.hypot(last[0],last[1]):0]);
       if(S.track.length>4000)S.track.shift();
     }
-    if(payload.sf)S.sf={lat:payload.sf[0],lng:payload.sf[1]};
+    if(payload.sf){
+      const [la,ln,hd]=payload.sf;
+      if(!S.sf||S.sf.lat!==la||S.sf.lng!==ln||S.sf.hdg!==hd){
+        S.sf={lat:la,lng:ln,hdg:hd};
+        if(!LT.org)ltOrigin(S.sf);
+        restoreSF();                       // 端点を復元して地図に線で描く
+      }
+    }
     for(const f of payload.f||[])rx.push(f);
     if(rx.length>25)rx.splice(0,rx.length-25);   // 遅れたら間引いて追いつく
   }
@@ -633,7 +751,7 @@ function connect(){
       if(!ready||!S.running||!buf.length)return;
       net.send('tel',{f:buf.splice(0),ls:S.lapStart,
         p:S.pos?[+S.pos.lat.toFixed(6),+S.pos.lng.toFixed(6)]:null,
-        sf:S.sf?[S.sf.lat,S.sf.lng]:null});
+        sf:S.sf?[S.sf.lat,S.sf.lng,S.sf.hdg]:null});
     },500);
   }
 }
@@ -776,9 +894,11 @@ $('#btnStart').onclick=async e=>{
   S.running=!S.running;
   e.target.textContent=S.running?'計測停止':'計測開始';
   if(S.running){
-    S.lapStart=Date.now();S.wasNear=false;
+    resetLapState();smoothReset();
+    S.lapStart=LT.line?Date.now():null;   // ライン未設定なら自動設置まで待つ
+    if(LT.line)LT.last=S.lapStart;
   }else{
-    S.lapStart=null;S.trail.length=0;S.lat=S.lon=0;   // 表示を止める
+    S.lapStart=null;S.trail.length=0;S.lat=S.lon=0;smoothReset();   // 表示を止める
     toast('計測を停止しました');
   }
   net.send('state',{running:S.running});
@@ -789,10 +909,27 @@ $('#btnFwd').onclick=()=>{
   toast('マウントを直したら、直線で加速・減速してください');
 };
 $('#btnSF').onclick=()=>{
-  if(!S.pos){toast('GPS測位を待っています');return}
-  S.sf={...S.pos};store.set('sf',JSON.stringify(S.sf));
-  S.lapStart=Date.now();S.wasNear=true;toast('S/F地点を登録しました');
+  if(!LT.prev||!LT.dir){toast('少し走ってから押してください（進行方向が必要です）');return}
+  setSFLine({x:LT.prev.x,y:LT.prev.y},LT.dir,true);
+  LT.last=Date.now();LT.dist=0;S.lapStart=LT.last;
+  toast('現在地を通過方向でS/Fラインに設定しました');
 };
+
+/* 表示設定 */
+function optSync(){
+  $('#sTau').value=S.tau;   $('#vTau').textContent=S.tau.toFixed(2)+'秒';
+  $('#sMax').value=S.maxG;  $('#vMax').textContent=fmtG(S.maxG);
+  $('#sRing').value=S.rings;$('#vRing').textContent=S.rings+'本';
+  $('#sAdapt').checked=S.adapt;
+}
+$('#btnOpt').onclick=()=>{optSync();$('#opt').classList.remove('hide')};
+$('#optClose').onclick=()=>$('#opt').classList.add('hide');
+$('#opt').onclick=e=>{if(e.target.id==='opt')$('#opt').classList.add('hide')};
+$('#sTau').oninput=e=>{S.tau=+e.target.value;store.set('tau',S.tau);optSync()};
+$('#sMax').oninput=e=>{S.maxG=+e.target.value;store.set('maxg',S.maxG);optSync()};
+$('#sRing').oninput=e=>{S.rings=+e.target.value;store.set('rings',S.rings);optSync()};
+$('#sAdapt').onchange=e=>{S.adapt=e.target.checked;store.set('adapt',S.adapt?'1':'0')};
+$('#sfReset').onclick=()=>{clearSF();toast('S/Fラインを消しました。次に走り出した地点で自動設定します')};
 $('#btnCsv').onclick=()=>{
   if(!S.log.length){toast('記録データがありません');return}
   const csv='time,lap,lateral_g,longitudinal_g,speed_kmh,lat,lng\n'+S.log.map(r=>r.join(',')).join('\n');
