@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>G-LINK</title>
+<title>PITEYE</title>
 <style>
 :root{
   --bg:#0b0e13;--panel:#141a22;--line:#26313d;--txt:#e8eef5;--dim:#7b8b9c;
@@ -48,9 +48,25 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:8px}
 
 /* 監督画面 */
-#coach{flex:1;display:grid;grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto;min-height:0;gap:8px;padding:8px}
-@media(min-width:900px){#coach{grid-template-columns:1.2fr 1fr;grid-template-rows:auto 1fr auto}
-  #cmap{grid-row:1/3}}
+#coach{flex:1;display:grid;grid-template-columns:1fr;align-content:start;
+  min-height:0;overflow:auto;gap:8px;padding:8px}
+@media(min-width:900px){
+  #coach{grid-template-columns:1.4fr 1fr;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
+  #coach>header{grid-column:1/-1;grid-row:1}
+  #cmap{grid-column:1;grid-row:2}
+  #cside{grid-column:2;grid-row:2}
+  #ctrl{grid-column:1/-1;grid-row:3}
+}
+#cside{display:flex;flex-direction:column;gap:8px;min-height:0}
+#cside .card:last-child{flex:1;min-height:0;display:flex;flex-direction:column}
+#cside .laps{flex:1;max-height:none}
+/* 現在の合図 */
+#cSig{border-radius:12px;padding:22px 12px;text-align:center;background:#0f141b;
+  border:1px solid var(--line);transition:background .2s}
+#cSig .t{font-size:34px;font-weight:800;letter-spacing:.1em;line-height:1.1}
+#cSig .e{font-size:12px;letter-spacing:.14em;margin-top:6px;opacity:.8}
+#cSig.none{color:var(--dim)}
+#cSig.none .t{font-size:22px;font-weight:600}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;min-height:0}
 .card h2{font-size:11px;letter-spacing:.16em;color:var(--dim);margin:0 0 8px;font-weight:600}
 #map,#dmapMini{width:100%;display:block;border-radius:8px;background:#0f141b}
@@ -74,15 +90,21 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 /* フラッグ全画面表示 */
 #signal{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:10px;font-weight:800}
+#signal .plate{text-align:center;padding:8px 24px;border-radius:18px}
 #signal .t{font-size:min(18vw,120px);letter-spacing:.08em}
 #signal .s{font-size:min(5vw,22px);letter-spacing:.2em;opacity:.85}
+/* 市松模様の上では文字が沈むので、板を敷いて反転表示する */
+#signal.checker .plate{background:#0b0e13;color:#fff;padding:18px 34px;
+  box-shadow:0 0 0 4px #fff,0 12px 40px #0009}
+#signal.checker .s{opacity:1}
 #signal button{margin-top:18px}
 .blink{animation:bl 1s steps(2,end) infinite}
 @keyframes bl{50%{opacity:.35}}
 #toast{position:fixed;left:50%;top:60px;transform:translateX(-50%) translateY(-200%);
   background:var(--live);color:#05121f;font-weight:700;padding:14px 20px;border-radius:12px;
-  max-width:88vw;text-align:center;font-size:18px;transition:transform .3s;z-index:30}
-#toast.show{transform:translateX(-50%) translateY(0)}
+  max-width:88vw;text-align:center;font-size:18px;transition:transform .3s;z-index:30;
+  visibility:hidden}
+#toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
 dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(92vw,420px)}
 dialog::backdrop{background:#000a}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -93,7 +115,7 @@ dialog::backdrop{background:#000a}
 <!-- 起動画面 -->
 <section id="launch">
   <div>
-    <h1>G-LINK</h1>
+    <h1>PITEYE</h1>
     <p>走行Gとコース上の位置をリアルタイムで共有します。ドライバーは走行画面、監督はモニター画面を開いてください。</p>
   </div>
   <div class="roles">
@@ -103,7 +125,9 @@ dialog::backdrop{background:#000a}
   <div>
     <label>ルームコード（チームで共通）</label>
     <div style="display:flex;gap:8px">
-      <input id="fRoom" placeholder="例: K7RQ92" autocapitalize="characters" maxlength="10">
+      <input id="fRoom" placeholder="K7RQ92" maxlength="10"
+             inputmode="email" autocomplete="off" autocorrect="off" spellcheck="false"
+             style="text-transform:uppercase;letter-spacing:.15em">
       <button id="gen" style="flex:0 0 auto">発行</button>
     </div>
     <p style="margin-top:8px;font-size:12px">コードを発行して、チーム内で共有してください。設定はこれだけです。</p>
@@ -122,6 +146,7 @@ dialog::backdrop{background:#000a}
     <span class="logo">DRIVER</span>
     <span class="badge" id="dRoom">room —</span>
     <span class="spacer"></span>
+    <button id="mute" style="padding:8px 10px">音 ON</button>
     <button id="dExit">終了</button>
   </header>
   <div class="dtop">
@@ -162,11 +187,17 @@ dialog::backdrop{background:#000a}
       <div><div class="k">周回</div><div class="v" id="cCount">0</div></div>
     </div>
   </div>
-  <div class="card">
-    <h2>ラップタイム</h2>
-    <div class="laps"><table id="lapTable"></table></div>
+  <div id="cside">
+    <div class="card">
+      <h2>現在の合図</h2>
+      <div id="cSig" class="none"><div class="t">なし</div><div class="e"></div></div>
+    </div>
+    <div class="card" id="claps">
+      <h2>ラップタイム</h2>
+      <div class="laps"><table id="lapTable"></table></div>
+    </div>
   </div>
-  <div class="card" style="grid-column:1/-1">
+  <div class="card" id="ctrl">
     <h2>指示</h2>
     <div class="flags">
       <button class="f-red" data-sig="RED">赤旗</button>
@@ -184,7 +215,7 @@ dialog::backdrop{background:#000a}
   </div>
 </section>
 
-<div id="signal" class="hide"><div class="t"></div><div class="s"></div><button id="sigAck">確認</button></div>
+<div id="signal" class="hide"><div class="plate"><div class="t"></div><div class="s"></div></div><button id="sigAck">確認</button></div>
 <div id="toast"></div>
 
 <script type="module">
@@ -207,8 +238,8 @@ const norm=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n)};
 
 function onMotion(e){
   const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
-  const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);
-  if(!ready)return;
+  const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);   // 重力の追従は常時
+  if(!ready||!S.running)return;                              // 停止中はここまで
   const gn=norm(g),lin=sub(v,g),h=sub(lin,scale(gn,dot(lin,gn)));
   const f=fwd||[0,0,-1];
   const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
@@ -216,7 +247,7 @@ function onMotion(e){
   const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;
   const t=performance.now();S.trail.push([t,S.lat,S.lon]);
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
-  if(S.running)S.log.push([Date.now(),S.lat.toFixed(3),S.lon.toFixed(3),S.speed??'',
+  if(S.log.length<200000)S.log.push([Date.now(),S.lat.toFixed(3),S.lon.toFixed(3),S.speed??'',
     S.pos?S.pos.lat.toFixed(6):'',S.pos?S.pos.lng.toFixed(6):'']);
 }
 
@@ -243,7 +274,7 @@ function distM(a,b){
   return Math.hypot(dx,dy);
 }
 function checkLap(){
-  if(!S.sf||!S.pos)return;
+  if(!S.running||!S.sf||!S.pos)return;
   const near=distM(S.sf,S.pos)<SF_RADIUS, now=Date.now();
   if(near&&!S.wasNear){
     if(S.lapStart&&now-S.lapStart>MIN_LAP){
@@ -308,8 +339,9 @@ function drawCircle(){
 const mp=$('#map'),mx=mp?.getContext('2d');
 function drawMap(){
   if(S.role!=='coach'||!mx){requestAnimationFrame(drawMap);return}
-  const w=mp.clientWidth,h=Math.round(w*0.62),d=devicePixelRatio||1;
-  if(mp.width!==w*d){mp.width=w*d;mp.height=h*d;mp.style.height=h+'px'}
+  const w=mp.clientWidth,d=devicePixelRatio||1;
+  const h=Math.max(160,Math.min(Math.round(w*0.62),Math.round(innerHeight*0.42)));
+  if(mp.width!==w*d||mp.height!==h*d){mp.width=w*d;mp.height=h*d;mp.style.height=h+'px'}
   mx.setTransform(d,0,0,d,0,0);mx.clearRect(0,0,w,h);
   if(S.track.length<2){mx.fillStyle='#3d4c5c';mx.font='13px sans-serif';mx.textAlign='center';
     mx.fillText('走行ラインを記録中…',w/2,h/2);requestAnimationFrame(drawMap);return}
@@ -340,10 +372,13 @@ const SIGNALS={
   BLACK:{t:'黒旗',s:'ただちにピットへ',bg:'#000',fg:'#fff'},
   CHECKER:{t:'チェッカー',s:'セッション終了',bg:'#fff',fg:'#111'},
   PIT:{t:'PIT IN',s:'次の周でピットイン',bg:'var(--f-pit)',fg:'#fff'},
+  MSG:{t:'',s:'監督より',bg:'var(--live)',fg:'#05121f'},
 };
+// 文字数に応じて大きさを決める（短い指示ほど大きく）
+const msgSize=n=>n<=6?'min(15vw,92px)':n<=14?'min(9vw,56px)':n<=30?'min(6vw,36px)':'min(4.5vw,28px)';
 /* 中継サーバー（Cloudflare Workers）へWebSocketで接続。
    利用者が入力するのはルームコードだけ。 */
-const SERVER='wss://glink.ibc-tanzawa.workers.dev';
+const SERVER='wss://piteye.ibc-tanzawa.workers.dev';
 const net={
   ws:null,queue:[],
   open(){return this.ws&&this.ws.readyState===1},
@@ -384,8 +419,13 @@ function handle(msg){
   else if(event==='lap'&&S.role==='coach'){
     S.laps[payload.n-1]=payload.t;S.best=payload.best;renderLaps();
   }
+  else if(event==='state'&&S.role==='coach'){
+    S.running=payload.running;
+    if(!payload.running){rx.length=0;S.lapStart=null;S.lat=S.lon=0;S.speed=null}
+    status(true,payload.running?'受信中':'走行停止');
+  }
   else if(event==='sig'&&S.role==='driver')showSignal(payload.code);
-  else if(event==='msg'&&S.role==='driver'){toast(payload.text);navigator.vibrate?.([100,60,100])}
+  else if(event==='msg'&&S.role==='driver'){showSignal('MSG',payload.text);navigator.vibrate?.([100,60,100])}
 }
 
 function status(on,label){
@@ -425,12 +465,12 @@ function connect(){
     // 送信回数は2Hzのまま、監督側は10Hzのなめらかさで再生できる。
     const buf=[];
     connect.sampler=setInterval(()=>{
-      if(!ready)return;
+      if(!ready||!S.running)return;
       buf.push([+S.lat.toFixed(3),+S.lon.toFixed(3),S.speed]);
       if(buf.length>20)buf.shift();
     },100);
     connect.timer=setInterval(()=>{
-      if(!ready||!buf.length)return;
+      if(!ready||!S.running||!buf.length)return;
       net.send('tel',{f:buf.splice(0),ls:S.lapStart,
         p:S.pos?[+S.pos.lat.toFixed(6),+S.pos.lng.toFixed(6)]:null,
         sf:S.sf?[S.sf.lat,S.sf.lng]:null});
@@ -439,18 +479,62 @@ function connect(){
 }
 
 /* ================= 合図表示（ドライバー） ================= */
-function showSignal(code){
+/* ===== 合図音（WebAudio・音源ファイル不要／オフラインでも鳴る） ===== */
+const sound={
+  ctx:null,on:store.get('mute','0')!=='1',timer:null,
+  unlock(){
+    if(!this.ctx){try{this.ctx=new (AudioContext||webkitAudioContext)()}catch{return}}
+    if(this.ctx.state==='suspended')this.ctx.resume();
+  },
+  beep(freq,at,dur,type='square',vol=.5){
+    if(!this.ctx||!this.on)return;
+    const t=this.ctx.currentTime+at;
+    const o=this.ctx.createOscillator(),gn=this.ctx.createGain();
+    o.type=type;o.frequency.setValueAtTime(freq,t);
+    gn.gain.setValueAtTime(0,t);
+    gn.gain.linearRampToValueAtTime(vol,t+.01);          // クリックノイズ防止
+    gn.gain.setValueAtTime(vol,t+dur-.03);
+    gn.gain.linearRampToValueAtTime(0,t+dur);
+    o.connect(gn).connect(this.ctx.destination);
+    o.start(t);o.stop(t+dur+.02);
+  },
+  // 合図・アドバイスとも共通のサイレン音
+  play(){
+    this.unlock();
+    for(let i=0;i<3;i++){this.beep(880,i*.36,.16);this.beep(660,i*.36+.18,.16)}
+  },
+  // 赤旗・黒旗・ピットは見落とすと致命的なので、確認するまで繰り返す
+  repeat(code){
+    this.stop();
+    if(!['RED','BLACK','PIT'].includes(code))return;
+    this.timer=setInterval(()=>this.play(),3000);
+  },
+  stop(){clearInterval(this.timer);this.timer=null},
+  toggle(){
+    this.on=!this.on;store.set('mute',this.on?'0':'1');
+    $('#mute').textContent=this.on?'音 ON':'音 OFF';
+    if(this.on){this.unlock();this.play()}else this.stop();
+  },
+};
+
+function showSignal(code,text){
   const el=$('#signal');
-  if(code==='CLEAR'){el.classList.add('hide');return}
+  if(code==='CLEAR'){el.classList.add('hide');sound.stop();return}
   const c=SIGNALS[code];if(!c)return;
+  sound.play();sound.repeat(code);
   el.style.background=c.bg;el.style.color=c.fg;
-  el.querySelector('.t').textContent=c.t;el.querySelector('.s').textContent=c.s;
+  const t=el.querySelector('.t');
+  t.textContent=code==='MSG'?text:c.t;
+  t.style.fontSize=code==='MSG'?msgSize((text||'').length):'';
+  el.querySelector('.s').textContent=c.s;
   el.classList.remove('hide');
   el.classList.toggle('blink',code==='PIT'||code==='YELLOW');
+  el.classList.toggle('checker',code==='CHECKER');
   if(code==='CHECKER')el.style.background='repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/40px 40px';
   navigator.vibrate?.(code==='RED'||code==='BLACK'?[300,120,300,120,300]:[200,100,200]);
 }
-$('#sigAck').onclick=()=>$('#signal').classList.add('hide');
+$('#sigAck').onclick=()=>{$('#signal').classList.add('hide');sound.stop()};
+$('#mute').onclick=()=>sound.toggle();
 
 let tid;function toast(m){const el=$('#toast');el.textContent=m;el.classList.add('show');
   clearTimeout(tid);tid=setTimeout(()=>el.classList.remove('show'),5000)}
@@ -461,9 +545,10 @@ $('#fRoom').value=S.room;
 const hash=new URLSearchParams(location.hash.slice(1));
 if(hash.get('r'))$('#fRoom').value=hash.get('r').toUpperCase();
 
-const shareURL=()=>location.origin+location.pathname+'#r='+$('#fRoom').value;
+const roomCode=()=>$('#fRoom').value.trim().toUpperCase();
+const shareURL=()=>location.origin+location.pathname+'#r='+roomCode();
 async function renderQR(){
-  const code=$('#fRoom').value.trim();
+  const code=roomCode();
   $('#qrBox').classList.toggle('hide',code.length<4);
   if(code.length<4)return;
   try{
@@ -473,7 +558,7 @@ async function renderQR(){
   }catch{$('#qrBox').classList.add('hide')}   // オフライン時はコード手入力で運用
 }
 $('#share').onclick=async()=>{
-  const data={title:'G-LINK',text:'ルームコード '+$('#fRoom').value,url:shareURL()};
+  const data={title:'PITEYE',text:'ルームコード '+roomCode(),url:shareURL()};
   try{ navigator.share?await navigator.share(data)
        :await navigator.clipboard.writeText(shareURL())&&toast('リンクをコピーしました') }catch{}
 };
@@ -483,7 +568,15 @@ $('#gen').onclick=()=>{
   $('#fRoom').value=[...crypto.getRandomValues(new Uint8Array(6))].map(v=>A[v%A.length]).join('');
   renderQR();
 };
-$('#fRoom').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase();renderQR()});
+// 入力値そのものは書き換えない（書き換えるとIMEの変換が壊れる）。
+// 表示はCSSで大文字化し、読み取り時にtoUpperCaseする。
+let composing=false,qrTimer;
+$('#fRoom').addEventListener('compositionstart',()=>composing=true);
+$('#fRoom').addEventListener('compositionend',()=>{composing=false;renderQR()});
+$('#fRoom').addEventListener('input',()=>{
+  if(composing)return;
+  clearTimeout(qrTimer);qrTimer=setTimeout(renderQR,300);
+});
 renderQR();
 $('#pickDriver').onclick=()=>setRole('driver');
 $('#pickCoach').onclick=()=>setRole('coach');
@@ -492,11 +585,13 @@ function setRole(r){S.role=r;
   $('#pickCoach').setAttribute('aria-pressed',r==='coach')}
 $('#enter').onclick=async()=>{
   if(!S.role){toast('役割を選んでください');return}
-  S.room=$('#fRoom').value.trim().toUpperCase();
+  S.room=roomCode();
   if(!S.room){toast('ルームコードを入力してください');return}
   store.set('room',S.room);
   $('#launch').classList.add('hide');
   $(S.role==='driver'?'#driver':'#coach').classList.remove('hide');
+  sound.unlock();                                   // 操作直後でないとiOSは音を出せない
+  $('#mute').textContent=sound.on?'音 ON':'音 OFF';
   if(S.role==='driver'){resizeC();await startSensors()}
   connect();
 };
@@ -506,8 +601,15 @@ addEventListener('resize',()=>{if(S.role==='driver')resizeC()});
 /* ドライバー操作 */
 $('#btnStart').onclick=async e=>{
   if(!ready&&!await startSensors())return;
-  S.running=!S.running;e.target.textContent=S.running?'計測停止':'計測開始';
-  if(S.running&&!S.lapStart)S.lapStart=Date.now();
+  S.running=!S.running;
+  e.target.textContent=S.running?'計測停止':'計測開始';
+  if(S.running){
+    S.lapStart=Date.now();S.wasNear=false;
+  }else{
+    S.lapStart=null;S.trail.length=0;S.lat=S.lon=0;   // 表示を止める
+    toast('計測を停止しました');
+  }
+  net.send('state',{running:S.running});
 };
 $('#btnFwd').onclick=()=>{const gn=norm(g);
   fwd=norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));S.peak=0;toast('現在の向きを前方に設定しました')};
@@ -521,17 +623,44 @@ $('#btnCsv').onclick=()=>{
   const csv='time,lateral_g,longitudinal_g,speed_kmh,lat,lng\n'+S.log.map(r=>r.join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='glink_'+new Date().toISOString().slice(0,19).replace(/[:T-]/g,'')+'.csv';a.click();
+  a.download='piteye_'+new Date().toISOString().slice(0,19).replace(/[:T-]/g,'')+'.csv';a.click();
 };
 
 /* 監督操作 */
+/* 監督側：今出している合図を常時表示する */
+let sigAt=null;
+function renderSig(code,text){
+  const el=$('#cSig');if(!el)return;
+  const c=SIGNALS[code];
+  el.classList.toggle('none',!c);
+  el.classList.toggle('blink',code==='PIT'||code==='YELLOW');
+  const t=el.querySelector('.t');
+  if(!c){el.style.background='#0f141b';el.style.color='';t.textContent='なし';t.style.cssText='';
+    el.querySelector('.e').textContent='';sigAt=null;return}
+  el.style.background=code==='CHECKER'
+    ?'repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/16px 16px':c.bg;
+  el.style.color=c.fg;
+  t.textContent=code==='MSG'?text:c.t;
+  t.style.cssText=code==='CHECKER'
+    ?'background:#0b0e13;color:#fff;display:inline-block;padding:4px 16px;border-radius:8px'
+    :code==='MSG'?'font-size:'+((text||'').length<=8?'30px':(text||'').length<=18?'24px':'19px'):'';
+  sigAt=Date.now();
+}
+setInterval(()=>{
+  if(!sigAt)return;
+  const e=$('#cSig')?.querySelector('.e');
+  if(e)e.textContent='発出から '+Math.floor((Date.now()-sigAt)/1000)+' 秒';
+},1000);
+
 $$('.flags button').forEach(b=>b.onclick=()=>{
   net.send('sig',{code:b.dataset.sig});
+  renderSig(b.dataset.sig);
   logMsg('合図: '+b.textContent);
 });
 $('#msgSend').onclick=()=>{
   const t=$('#msgInput').value.trim();if(!t)return;
   net.send('msg',{text:t});
+  renderSig('MSG',t);
   logMsg(t+(S.online?'':'（未接続 — 接続時に送信）'));$('#msgInput').value='';
 };
 $('#msgInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('#msgSend').click()});
