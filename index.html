@@ -70,6 +70,13 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;min-height:0}
 .card h2{font-size:11px;letter-spacing:.16em;color:var(--dim);margin:0 0 8px;font-weight:600}
 #map,#dmapMini{width:100%;display:block;border-radius:8px;background:#0f141b}
+/* Leafletの既定色はダークUIで浮くので抑える */
+#legend{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--dim)}
+#legend i{flex:1;height:8px;border-radius:4px;display:block}
+.leaflet-container{background:#0f141b!important;font-family:inherit}
+.leaflet-control-attribution{background:#0b0e13cc!important;color:#7b8b9c!important;font-size:10px}
+.leaflet-control-attribution a{color:#7b8b9c!important}
+.leaflet-bar a{background:#141a22!important;color:#e8eef5!important;border-color:#26313d!important}
 .laps{max-height:180px;overflow:auto;font-variant-numeric:tabular-nums;font-size:14px}
 .laps table{width:100%;border-collapse:collapse}
 .laps td{padding:4px 6px;border-bottom:1px solid var(--line)}
@@ -162,7 +169,7 @@ dialog::backdrop{background:#000a}
   </div>
   <div class="dbar">
     <button id="btnStart" class="primary">計測開始</button>
-    <button id="btnFwd">前方向をセット</button>
+    <button id="btnFwd">前方向 学習中</button>
     <button id="btnSF">S/F地点を登録</button>
     <button id="btnCsv">CSV出力</button>
   </div>
@@ -178,8 +185,14 @@ dialog::backdrop{background:#000a}
     <button id="cExit">終了</button>
   </header>
   <div class="card" id="cmap">
-    <h2>コースマップ</h2>
-    <canvas id="map"></canvas>
+    <h2>コースマップ
+      <button id="mapMode" style="float:right;padding:4px 10px;font-size:12px">ライン表示</button>
+      <button id="colorBy" style="float:right;padding:4px 10px;font-size:12px;margin-right:6px">色: 速度</button>
+      <button id="mapFit" style="float:right;padding:4px 10px;font-size:12px;margin-right:6px">全体表示</button>
+    </h2>
+    <div id="lmap" style="width:100%;border-radius:8px;background:#0f141b"></div>
+    <canvas id="map" class="hide"></canvas>
+    <div id="legend"></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;text-align:center">
       <div><div class="k">現在ラップ</div><div class="v" id="cLap">--:--.---</div></div>
       <div><div class="k">km/h</div><div class="v" id="cSpd">--</div></div>
@@ -230,25 +243,62 @@ const S={role:null,room:store.get('room'),online:false,
 
 /* ================= センサー ================= */
 let g=[0,0,9.81],fwd=null,ready=false;const LP=0.03;
+let hAvg=[0,0,0];                 // 直近の水平加速度（デバイス座標）
+let acc=[0,0],fwdOK=false;        // 前方向の学習結果
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const scale=(a,s)=>a.map(v=>v*s);
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const norm=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n)};
 
+/* 重力と直交する平面上に、デバイス基準の安定した2軸をつくる */
+function horizBasis(gn){
+  let r=Math.abs(dot([1,0,0],gn))>0.9?[0,1,0]:[1,0,0];
+  const e1=norm(sub(r,scale(gn,dot(r,gn))));
+  return [e1,cross(gn,e1)];
+}
+
 function onMotion(e){
   const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
   const v=[a.x,a.y,a.z];g=g.map((c,i)=>c*(1-LP)+v[i]*LP);   // 重力の追従は常時
   if(!ready||!S.running)return;                              // 停止中はここまで
   const gn=norm(g),lin=sub(v,g),h=sub(lin,scale(gn,dot(lin,gn)));
-  const f=fwd||[0,0,-1];
+  hAvg=hAvg.map((c,i)=>c*0.85+h[i]*0.15);                    // GPS周期に合わせて平滑化
+  const [e1,e2]=horizBasis(gn);
+  const f=fwd||norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));  // 学習前は背面カメラ方向で暫定
   const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
-  S.lon=-dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
+  S.lon=dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
   const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;
   const t=performance.now();S.trail.push([t,S.lat,S.lon]);
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
   if(S.log.length<200000)S.log.push([Date.now(),S.lat.toFixed(3),S.lon.toFixed(3),S.speed??'',
     S.pos?S.pos.lat.toFixed(6):'',S.pos?S.pos.lng.toFixed(6):'']);
+}
+
+/* GPSの速度変化（＝実際の加減速）と、センサーが捉えた水平加速度を突き合わせ、
+   相関の強い向きを前方向とみなす。直進中の加減速だけを学習に使う。 */
+let lastFix=null;
+function learnForward(p){
+  const now=p.timestamp,sp=p.coords.speed,hd=p.coords.heading;
+  const prev=lastFix;lastFix={t:now,sp,hd};
+  if(!S.running||prev==null||sp==null||prev.sp==null)return;
+  const dt=(now-prev.t)/1000;
+  if(dt<0.3||dt>3)return;
+  if(sp<5.5)return;                                    // 20km/h未満は除外
+  if(hd!=null&&prev.hd!=null){                          // 旋回中は除外
+    let dh=Math.abs(hd-prev.hd)%360;if(dh>180)dh=360-dh;
+    if(dh>8)return;
+  }
+  const a=(sp-prev.sp)/dt;                              // 実際の前後加速度 m/s²
+  if(Math.abs(a)<0.4)return;                            // 定速走行は情報量がない
+  const gn=norm(g),[e1,e2]=horizBasis(gn);
+  acc=[acc[0]*0.995+dot(hAvg,e1)*a, acc[1]*0.995+dot(hAvg,e2)*a];
+  const mag=Math.hypot(...acc);
+  if(mag<0.8)return;
+  const u=[acc[0]/mag,acc[1]/mag];
+  fwd=norm([e1[0]*u[0]+e2[0]*u[1], e1[1]*u[0]+e2[1]*u[1], e1[2]*u[0]+e2[2]*u[1]]);
+  if(!fwdOK){fwdOK=true;toast('前方向を自動設定しました')}
+  $('#btnFwd').textContent='前方向 学習済み';
 }
 
 async function startSensors(){
@@ -259,8 +309,9 @@ async function startSensors(){
   navigator.geolocation?.watchPosition(p=>{
     S.speed=p.coords.speed==null?null:Math.round(p.coords.speed*3.6);
     S.pos={lat:p.coords.latitude,lng:p.coords.longitude};
-    S.track.push([S.pos.lat,S.pos.lng]);
+    S.track.push([S.pos.lat,S.pos.lng,S.speed,Math.hypot(S.lat,S.lon)]);
     if(S.track.length>4000)S.track.shift();
+    learnForward(p);
     checkLap();
   },()=>{},{enableHighAccuracy:true,maximumAge:0,timeout:10000});
   ready=true;return true;
@@ -336,29 +387,110 @@ function drawCircle(){
 }
 
 /* ================= 描画: コースマップ ================= */
+/* ===== 走行ラインの色分け ===== */
+const RAMP=['#2b6fff','#00b7d4','#2fd6a0','#a8dc46','#ffc74a','#ff7a3d','#ff2f2f'];
+let colorBy=store.get('colorby','speed');       // speed: 速度 / g: 合成G
+const val=p=>colorBy==='speed'?(p[2]??0):(p[3]??0);
+function ramgeOf(){                              // 走行実績から自動でレンジを決める
+  let max=0;for(const p of S.track){const v=val(p);if(v>max)max=v}
+  return colorBy==='speed'?Math.max(60,Math.ceil(max/20)*20):Math.max(1,Math.ceil(max*10)/10);
+}
+const bucket=(v,max)=>Math.max(0,Math.min(RAMP.length-1,Math.floor(v/max*RAMP.length)));
+function renderLegend(max){
+  const el=$('#legend');if(!el)return;
+  el.innerHTML=`<span>0</span><i style="background:linear-gradient(90deg,${RAMP.join(',')})"></i>`+
+    `<span>${colorBy==='speed'?max+' km/h':max.toFixed(1)+' G'}</span>`;
+}
+
+/* ===== コースマップ ===== */
+const mapH=()=>Math.max(160,Math.min(Math.round(($('#cmap')?.clientWidth||400)*0.62),
+                                     Math.round(innerHeight*0.42)));
+let mapMode=store.get('mapmode','sat');   // sat: 衛星写真 / line: 走行ラインのみ
+
+/* --- 衛星写真（Leaflet + Esri World Imagery。APIキー不要） --- */
+let L=null,lmap=null,lbuckets=[],lmark=null,lsf=null,fitted=false;
+async function initLeaflet(){
+  if(lmap)return;
+  const el=$('#lmap');if(!el)return;
+  el.style.height=mapH()+'px';
+  if(!L){
+    const css=document.createElement('link');
+    css.rel='stylesheet';css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.append(css);
+    const mod=await import('https://esm.sh/leaflet@1.9.4');
+    L=mod.default||mod;
+  }
+  lmap=L.map(el,{attributionControl:true}).setView([35.68,139.76],16);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {maxZoom:19,attribution:'Tiles &copy; Esri'}).addTo(lmap);
+  // 色ごとに1本のマルチポリラインを持ち、区間をそこへ振り分ける
+  lbuckets=RAMP.map(c=>L.polyline([],{color:c,weight:4,opacity:.95}).addTo(lmap));
+  lmark=L.circleMarker([0,0],{radius:7,weight:2,color:'#fff',
+    fillColor:'#fff',fillOpacity:1}).addTo(lmap);
+}
+function updateLeaflet(){
+  if(!lmap||S.track.length<2)return;
+  const max=ramgeOf(),groups=RAMP.map(()=>[]);
+  for(let i=1;i<S.track.length;i++){
+    const a=S.track[i-1],b=S.track[i];
+    groups[bucket(val(b),max)].push([[a[0],a[1]],[b[0],b[1]]]);
+  }
+  lbuckets.forEach((pl,i)=>pl.setLatLngs(groups[i]));
+  renderLegend(max);
+  if(S.pos)lmark.setLatLng([S.pos.lat,S.pos.lng]);
+  if(S.sf){
+    if(!lsf)lsf=L.circleMarker([S.sf.lat,S.sf.lng],{radius:6,weight:2,
+      color:'#fff',fillColor:'#111',fillOpacity:1}).addTo(lmap).bindTooltip('S/F');
+    else lsf.setLatLng([S.sf.lat,S.sf.lng]);
+  }
+  if(!fitted&&S.track.length>4){fitted=true;fitMap()}
+}
+function fitMap(){
+  if(mapMode==='sat'&&lmap&&S.track.length)
+    lmap.fitBounds(L.latLngBounds(S.track.map(p=>[p[0],p[1]])),{padding:[24,24]});
+}
+setInterval(()=>{if(S.role==='coach'&&mapMode==='sat')updateLeaflet()},500);
+
+function setMapMode(m){
+  mapMode=m;store.set('mapmode',m);
+  $('#lmap').classList.toggle('hide',m!=='sat');
+  $('#map').classList.toggle('hide',m==='sat');
+  $('#mapMode').textContent=m==='sat'?'ライン表示':'衛星写真';
+  if(m==='sat'){initLeaflet().then(()=>{
+    $('#lmap').style.height=mapH()+'px';lmap?.invalidateSize();updateLeaflet()})}
+}
+
 const mp=$('#map'),mx=mp?.getContext('2d');
 function drawMap(){
-  if(S.role!=='coach'||!mx){requestAnimationFrame(drawMap);return}
-  const w=mp.clientWidth,d=devicePixelRatio||1;
-  const h=Math.max(160,Math.min(Math.round(w*0.62),Math.round(innerHeight*0.42)));
+  if(S.role!=='coach'||!mx||mapMode==='sat'){requestAnimationFrame(drawMap);return}
+  const w=mp.clientWidth,d=devicePixelRatio||1,h=mapH();
   if(mp.width!==w*d||mp.height!==h*d){mp.width=w*d;mp.height=h*d;mp.style.height=h+'px'}
   mx.setTransform(d,0,0,d,0,0);mx.clearRect(0,0,w,h);
   if(S.track.length<2){mx.fillStyle='#3d4c5c';mx.font='13px sans-serif';mx.textAlign='center';
     mx.fillText('走行ラインを記録中…',w/2,h/2);requestAnimationFrame(drawMap);return}
   const lat0=S.track[0][0],k=Math.cos(lat0*Math.PI/180);
-  const pts=S.track.map(([la,ln])=>[ln*k,la]);
+  const pts=S.track.map(p=>[p[1]*k,p[0]]);
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
   for(const [x,y] of pts){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
   const pad=18,sc=Math.min((w-pad*2)/((x1-x0)||1e-6),(h-pad*2)/((y1-y0)||1e-6));
   const px=p=>[(p[0]-x0)*sc+pad+ (w-pad*2-(x1-x0)*sc)/2,
                h-((p[1]-y0)*sc+pad)-(h-pad*2-(y1-y0)*sc)/2];
-  mx.lineWidth=6;mx.lineJoin='round';mx.strokeStyle='#1e2833';
+  // 下地
+  mx.lineWidth=7;mx.lineJoin='round';mx.lineCap='round';mx.strokeStyle='#1e2833';
   mx.beginPath();pts.forEach((p,i)=>{const [a,b]=px(p);i?mx.lineTo(a,b):mx.moveTo(a,b)});mx.stroke();
-  mx.lineWidth=3;mx.strokeStyle='#4ea3ff';mx.stroke();
+  // 区間ごとに色を変える
+  const max=ramgeOf();
+  mx.lineWidth=4;
+  for(let i=1;i<pts.length;i++){
+    const [ax,ay]=px(pts[i-1]),[bx,by]=px(pts[i]);
+    mx.strokeStyle=RAMP[bucket(val(S.track[i]),max)];
+    mx.beginPath();mx.moveTo(ax,ay);mx.lineTo(bx,by);mx.stroke();
+  }
+  renderLegend(max);
   if(S.sf){const [a,b]=px([S.sf.lng*k,S.sf.lat]);
     mx.fillStyle='#fff';mx.fillRect(a-6,b-2,12,4);mx.fillStyle='#111';mx.fillRect(a-6,b-2,6,2);mx.fillRect(a,b,6,2)}
   const [a,b]=px(pts[pts.length-1]);
-  mx.beginPath();mx.arc(a,b,7,0,7);mx.fillStyle='#ffc74a';mx.fill();
+  mx.beginPath();mx.arc(a,b,7,0,7);mx.fillStyle='#fff';mx.fill();
   $('#cLap').textContent=S.lapStart?fmt(Date.now()-S.lapStart):'--:--.---';
   $('#cSpd').textContent=S.speed??'--';
   $('#cG').textContent=Math.hypot(S.lat,S.lon).toFixed(2);
@@ -410,8 +542,13 @@ function handle(msg){
   const {event,payload}=msg;
   if(event==='tel'&&S.role==='coach'){
     S.lapStart=payload.ls;
-    if(payload.p){S.pos={lat:payload.p[0],lng:payload.p[1]};S.track.push(payload.p);
-      if(S.track.length>4000)S.track.shift()}
+    if(payload.p){
+      S.pos={lat:payload.p[0],lng:payload.p[1]};
+      const last=(payload.f||[]).slice(-1)[0];
+      S.track.push([payload.p[0],payload.p[1],
+        last?last[2]:S.speed, last?Math.hypot(last[0],last[1]):0]);
+      if(S.track.length>4000)S.track.shift();
+    }
     if(payload.sf)S.sf={lat:payload.sf[0],lng:payload.sf[1]};
     for(const f of payload.f||[])rx.push(f);
     if(rx.length>25)rx.splice(0,rx.length-25);   // 遅れたら間引いて追いつく
@@ -593,10 +730,22 @@ $('#enter').onclick=async()=>{
   sound.unlock();                                   // 操作直後でないとiOSは音を出せない
   $('#mute').textContent=sound.on?'音 ON':'音 OFF';
   if(S.role==='driver'){resizeC();await startSensors()}
+  else setMapMode(mapMode);
   connect();
 };
 $('#dExit').onclick=$('#cExit').onclick=()=>location.reload();
-addEventListener('resize',()=>{if(S.role==='driver')resizeC()});
+$('#mapMode').onclick=()=>setMapMode(mapMode==='sat'?'line':'sat');
+$('#mapFit').onclick=()=>{fitted=true;fitMap()};
+$('#colorBy').onclick=()=>{
+  colorBy=colorBy==='speed'?'g':'speed';store.set('colorby',colorBy);
+  $('#colorBy').textContent=colorBy==='speed'?'色: 速度':'色: G';
+  if(mapMode==='sat')updateLeaflet();
+};
+$('#colorBy').textContent=colorBy==='speed'?'色: 速度':'色: G';
+addEventListener('resize',()=>{
+  if(S.role==='driver')resizeC();
+  else if(lmap){$('#lmap').style.height=mapH()+'px';lmap.invalidateSize()}
+});
 
 /* ドライバー操作 */
 $('#btnStart').onclick=async e=>{
@@ -611,8 +760,11 @@ $('#btnStart').onclick=async e=>{
   }
   net.send('state',{running:S.running});
 };
-$('#btnFwd').onclick=()=>{const gn=norm(g);
-  fwd=norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));S.peak=0;toast('現在の向きを前方に設定しました')};
+$('#btnFwd').onclick=()=>{
+  fwd=null;fwdOK=false;acc=[0,0];lastFix=null;S.peak=0;
+  $('#btnFwd').textContent='前方向 学習中';
+  toast('マウントを直したら、直線で加速・減速してください');
+};
 $('#btnSF').onclick=()=>{
   if(!S.pos){toast('GPS測位を待っています');return}
   S.sf={...S.pos};store.set('sf',JSON.stringify(S.sf));
