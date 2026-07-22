@@ -43,8 +43,8 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .k{font-size:10px;letter-spacing:.14em;color:var(--dim)}
 .v{font-size:24px;font-variant-numeric:tabular-nums;line-height:1.15}
 .v.big{font-size:38px}
-.dmain{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:6px}
-#circle{width:min(94vw,58vh);height:min(94vw,58vh)}
+.dmain{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:6px;overflow:hidden}
+#circle{display:block;max-width:100%;max-height:100%}
 .dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:8px}
 
 /* 監督画面 */
@@ -169,7 +169,7 @@ dialog::backdrop{background:#000a}
   </div>
   <div class="dbar">
     <button id="btnStart" class="primary">計測開始</button>
-    <button id="btnFwd">前方向 学習中</button>
+    <button id="btnFwd">0セット</button>
     <button id="btnSF">S/F地点を登録</button>
     <button id="btnCsv">CSV出力</button>
   </div>
@@ -298,7 +298,7 @@ function learnForward(p){
   const u=[acc[0]/mag,acc[1]/mag];
   fwd=norm([e1[0]*u[0]+e2[0]*u[1], e1[1]*u[0]+e2[1]*u[1], e1[2]*u[0]+e2[2]*u[1]]);
   if(!fwdOK){fwdOK=true;toast('前方向を自動設定しました')}
-  $('#btnFwd').textContent='前方向 学習済み';
+  $('#btnFwd').textContent='0セット済み';
 }
 
 async function startSensors(){
@@ -357,7 +357,16 @@ function renderLaps(){
 
 /* ================= 描画: Gサークル ================= */
 const cv=$('#circle'),cx=cv.getContext('2d');
-function resizeC(){const d=devicePixelRatio||1,w=cv.clientWidth;cv.width=w*d;cv.height=w*d;cx.setTransform(d,0,0,d,0,0)}
+function resizeC(){
+  const box=cv.parentElement;
+  const s=Math.max(140,Math.floor(Math.min(box.clientWidth,box.clientHeight))-12);
+  cv.style.width=s+'px';cv.style.height=s+'px';
+  const d=devicePixelRatio||1;
+  cv.width=s*d;cv.height=s*d;cx.setTransform(d,0,0,d,0,0);
+}
+// 画面の回転やアドレスバーの伸縮でも崩れないよう、実寸の変化を監視する
+if(window.ResizeObserver)new ResizeObserver(()=>{if(S.role==='driver')resizeC()})
+  .observe(cv.parentElement);
 const clamp=v=>Math.max(-1.5,Math.min(1.5,v));
 function drawCircle(){
   if(S.role!=='driver'){requestAnimationFrame(drawCircle);return}
@@ -762,7 +771,7 @@ $('#btnStart').onclick=async e=>{
 };
 $('#btnFwd').onclick=()=>{
   fwd=null;fwdOK=false;acc=[0,0];lastFix=null;S.peak=0;
-  $('#btnFwd').textContent='前方向 学習中';
+  $('#btnFwd').textContent='0セット';
   toast('マウントを直したら、直線で加速・減速してください');
 };
 $('#btnSF').onclick=()=>{
