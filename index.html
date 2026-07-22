@@ -13,7 +13,8 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overscroll-behavior:none;
   font-family:"Roboto Condensed","DIN Alternate","Helvetica Neue",system-ui,sans-serif}
-body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+body{display:flex;flex-direction:column;height:100vh;height:100svh;overflow:hidden;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 header{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex:0 0 auto}
 .logo{font-weight:700;letter-spacing:.18em;font-size:13px}
 .badge{font-size:11px;letter-spacing:.1em;padding:3px 8px;border:1px solid var(--line);border-radius:99px;color:var(--dim)}
@@ -50,24 +51,32 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 
 /* ドライバー画面 */
 #driver{flex:1;display:flex;flex-direction:column;min-height:0}
-.dtop{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line);flex:0 0 auto}
-.dtop div{background:var(--bg);padding:8px 6px;text-align:center}
-.k{font-size:10px;letter-spacing:.14em;color:var(--dim)}
-.v{font-size:24px;font-variant-numeric:tabular-nums;line-height:1.15}
-.v.big{font-size:38px}
-.dmain{flex:1;display:flex;gap:8px;min-height:0;padding:6px;overflow:hidden}
+#driver>header{flex:0 0 auto}
+.dmain{flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;padding:6px;overflow:hidden}
 .dcircle{flex:1;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center}
-.dstats{flex:0 0 32%;max-width:300px;display:flex;flex-direction:column;
-  justify-content:center;gap:8px;text-align:center}
-.dstats>div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 6px}
-/* 縦画面ではラップ表示を円の上へ回す */
-@media (max-aspect-ratio:1/1){
-  .dmain{flex-direction:column-reverse}
-  .dstats{flex:0 0 auto;max-width:none;width:100%;flex-direction:row}
-  .dstats>div{flex:1}
-}
 #circle{display:block;max-width:100%;max-height:100%}
-.dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:8px}
+.dside{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;min-height:0}
+.k{font-size:10px;letter-spacing:.14em;color:var(--dim)}
+.v{font-size:22px;font-variant-numeric:tabular-nums;line-height:1.15}
+.v.big{font-size:30px}
+.dstats{display:flex;gap:6px;text-align:center}
+.dstats>div{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px}
+.dtop{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line)}
+.dtop div{background:var(--bg);padding:6px;text-align:center}
+.dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+
+/* 横画面：Gグラフ最優先。円を左いっぱいに、テキストは右の細い帯へ寄せる */
+@media (orientation:landscape){
+  .dmain{flex-direction:row;padding:4px;gap:6px}
+  .dcircle{flex:1 1 auto}
+  .dside{flex:0 0 clamp(148px,25vw,210px);justify-content:space-between;overflow-y:auto}
+  .dstats{flex-direction:column;gap:5px}
+  .dtop{grid-template-columns:1fr;gap:1px}
+  .dbar{flex-direction:column;gap:6px}
+  .dbar button{width:100%;padding:8px 10px}
+  #driver>header{padding:4px 12px}
+  .v{font-size:17px}.v.big{font-size:22px}.k{font-size:9px}
+}
 
 /* 監督画面 */
 #coach{flex:1;display:grid;grid-template-columns:1fr;align-content:start;
@@ -180,29 +189,31 @@ dialog::backdrop{background:#000a}
   </header>
   <div class="dmain">
     <div class="dcircle"><canvas id="circle"></canvas></div>
-    <div class="dstats">
-      <div><div class="k">LAP</div><div class="v big" id="dLap">--:--.---</div></div>
-      <div><div class="k">BEST</div><div class="v" id="dBest">--:--.---</div></div>
-      <div><div class="k">LAST</div><div class="v" id="dLast">--:--.---</div></div>
+    <div class="dside">
+      <div class="dstats">
+        <div><div class="k">LAP</div><div class="v big" id="dLap">--:--.---</div></div>
+        <div><div class="k">BEST</div><div class="v" id="dBest">--:--.---</div></div>
+        <div><div class="k">LAST</div><div class="v" id="dLast">--:--.---</div></div>
+      </div>
+      <div class="dtop">
+        <div><div class="k">LATERAL G</div><div class="v" id="dLat">0.00</div></div>
+        <div><div class="k">LONG G</div><div class="v" id="dLon">0.00</div></div>
+        <div><div class="k">km/h</div><div class="v" id="dSpd">--</div></div>
+      </div>
+      <div class="dbar">
+        <button id="btnStart" class="primary">計測開始</button>
+        <button id="btnFwd">0セット</button>
+        <button id="btnSF">S/Fライン登録</button>
+        <button id="btnOpt" aria-label="表示設定">表示設定</button>
+      </div>
     </div>
-  </div>
-  <div class="dtop">
-    <div><div class="k">LATERAL G</div><div class="v" id="dLat">0.00</div></div>
-    <div><div class="k">LONG G</div><div class="v" id="dLon">0.00</div></div>
-    <div><div class="k">km/h</div><div class="v" id="dSpd">--</div></div>
-  </div>
-  <div class="dbar">
-    <button id="btnStart" class="primary">計測開始</button>
-    <button id="btnFwd">0セット</button>
-    <button id="btnSF">S/Fライン登録</button>
-  <button id="btnOpt" aria-label="表示設定">表示設定</button>
   </div>
 </section>
 
 <!-- 監督画面 -->
 <section id="coach" class="hide">
   <header style="grid-column:1/-1">
-    <span class="logo">PIT WALL</span>
+    <span class="logo">PITEYE</span>
     <span class="badge" id="cRoom">room —</span>
     <span class="badge" id="cLive">待機中</span>
     <span class="spacer"></span>
