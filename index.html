@@ -171,7 +171,6 @@ dialog::backdrop{background:#000a}
     <button id="btnStart" class="primary">計測開始</button>
     <button id="btnFwd">0セット</button>
     <button id="btnSF">S/F地点を登録</button>
-    <button id="btnCsv">CSV出力</button>
   </div>
 </section>
 
@@ -182,6 +181,7 @@ dialog::backdrop{background:#000a}
     <span class="badge" id="cRoom">room —</span>
     <span class="badge" id="cLive">待機中</span>
     <span class="spacer"></span>
+    <button id="btnCsv">CSV出力</button>
     <button id="cExit">終了</button>
   </header>
   <div class="card" id="cmap">
@@ -271,8 +271,6 @@ function onMotion(e){
   const m=Math.hypot(S.lat,S.lon);if(m>S.peak)S.peak=m;
   const t=performance.now();S.trail.push([t,S.lat,S.lon]);
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
-  if(S.log.length<200000)S.log.push([Date.now(),S.lat.toFixed(3),S.lon.toFixed(3),S.speed??'',
-    S.pos?S.pos.lat.toFixed(6):'',S.pos?S.pos.lng.toFixed(6):'']);
 }
 
 /* GPSの速度変化（＝実際の加減速）と、センサーが捉えた水平加速度を突き合わせ、
@@ -545,6 +543,10 @@ setInterval(()=>{
   S.trail.push([performance.now(),la,lo]);
   const t=performance.now();
   while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
+  // 走行記録は監督端末に残す（10Hz）
+  if(S.log.length<400000)S.log.push([new Date().toISOString(),S.laps.length+1,
+    la.toFixed(3),lo.toFixed(3),sp??'',
+    S.pos?S.pos.lat.toFixed(6):'',S.pos?S.pos.lng.toFixed(6):'']);
 },100);
 
 function handle(msg){
@@ -781,7 +783,7 @@ $('#btnSF').onclick=()=>{
 };
 $('#btnCsv').onclick=()=>{
   if(!S.log.length){toast('記録データがありません');return}
-  const csv='time,lateral_g,longitudinal_g,speed_kmh,lat,lng\n'+S.log.map(r=>r.join(',')).join('\n');
+  const csv='time,lap,lateral_g,longitudinal_g,speed_kmh,lat,lng\n'+S.log.map(r=>r.join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   a.download='piteye_'+new Date().toISOString().slice(0,19).replace(/[:T-]/g,'')+'.csv';a.click();
