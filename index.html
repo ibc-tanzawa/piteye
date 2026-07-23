@@ -28,6 +28,10 @@ input,select{width:100%;padding:10px;background:#0f141b;border:1px solid var(--l
   border-radius:8px;color:var(--txt);font:inherit}
 label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:12px 0 4px}
 .hide{display:none!important}
+.ref-btn{padding:2px 7px;font-size:10px;letter-spacing:.06em;border-radius:6px}
+.ref-btn.active{background:var(--lat);border-color:var(--lat);color:#000}
+#lapTable .ref{background:rgba(255,199,74,.07)}
+#lapTable td:last-child{padding-right:4px}
 
 /* 表示設定シート */
 #opt{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:60;display:flex;align-items:flex-end}
@@ -222,12 +226,14 @@ dialog::backdrop{background:#000a}
   </header>
   <div class="card" id="cmap">
     <h2>コースマップ
+      <button id="cmapView" style="float:right;padding:4px 10px;font-size:12px;margin-left:4px">G表示</button>
       <button id="mapMode" style="float:right;padding:4px 10px;font-size:12px">ライン表示</button>
       <button id="colorBy" style="float:right;padding:4px 10px;font-size:12px;margin-right:6px">色: 速度</button>
       <button id="mapFit" style="float:right;padding:4px 10px;font-size:12px;margin-right:6px">全体表示</button>
     </h2>
     <div id="lmap" style="width:100%;border-radius:8px;background:#0f141b"></div>
     <canvas id="map" class="hide"></canvas>
+    <canvas id="coachCircle" class="hide" style="display:block;margin:0 auto"></canvas>
     <div id="legend"></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;text-align:center">
       <div><div class="k">現在ラップ</div><div class="v" id="cLap">--:--.---</div></div>
@@ -297,7 +303,8 @@ const S={role:null,room:store.get('room'),online:false,
   adapt:store.get('adapt','1')!=='0',
   maxG:num('maxg',1.5),rings:num('rings',3),
   trail:[],track:[],log:[],laps:[],lapStart:null,sf:store.get('sf')?JSON.parse(store.get('sf')):null,
-  ch:null,best:null};
+  ch:null,best:null,refLap:null,lapTraces:[]};
+let coachView='map';  // 'map' | 'g'
 
 /* ================= センサー ================= */
 let g=[0,0,9.81],fwd=null,ready=false;
@@ -395,7 +402,7 @@ async function startSensors(){
   navigator.geolocation?.watchPosition(p=>{
     S.speed=p.coords.speed==null?null:Math.round(p.coords.speed*3.6);
     S.pos={lat:p.coords.latitude,lng:p.coords.longitude};
-    S.track.push([S.pos.lat,S.pos.lng,S.speed,Math.hypot(S.lat,S.lon)]);
+    S.track.push([S.pos.lat,S.pos.lng,S.speed,Math.hypot(S.lat,S.lon),Date.now()]);
     if(S.track.length>4000)S.track.shift();
     learnForward(p);
     checkLap(p);
@@ -475,7 +482,12 @@ function checkLap(p){
   const tc=prev.t+(c.t-prev.t)*t;                       // 通過時刻を線形補間
   if(LT.last!=null&&(tc-LT.last<LAP.minTime||LT.dist<LAP.minDist))return;
   if(LT.last!=null){
-    const lap=tc-LT.last;S.laps.push(lap);
+    const lap=tc-LT.last;
+    // このラップ分のtrackを切り出して保存（比較用）
+    const traceStart=S.track.findIndex(p=>p[4]&&p[4]>=LT.last);
+    S.lapTraces.push(traceStart>=0?S.track.slice(traceStart):S.track.slice());
+    // trackにラップ開始タイムスタンプを付与（索引用）
+    S.laps.push(lap);
     if(S.best==null||lap<S.best)S.best=lap;
     pushLap(lap);
   }
@@ -486,17 +498,28 @@ const fmt=ms=>ms==null?'--:--.---':
 function pushLap(t){
   if(S.role==='driver'){
     $('#dLast').textContent=fmt(t);$('#dBest').textContent=fmt(S.best);
-    net.send('lap',{n:S.laps.length,t,best:S.best});
+    net.send('lap',{n:S.laps.length,t,best:S.best,trace:S.lapTraces[S.lapTraces.length-1]});
   }
   renderLaps();
 }
 function renderLaps(){
   const tb=$('#lapTable');if(!tb)return;
-  tb.innerHTML=S.laps.map((t,i)=>
-    `<tr class="${t===S.best?'best':''}"><td>${String(i+1).padStart(2,'0')}</td>
-     <td>${fmt(t)}</td><td>${S.best&&t!==S.best?'+'+((t-S.best)/1000).toFixed(3):'BEST'}</td></tr>`
-  ).reverse().join('');
+  tb.innerHTML=S.laps.map((t,i)=>{
+    const sel=S.refLap===i;
+    const diff=S.best&&t!==S.best?'+'+((t-S.best)/1000).toFixed(3):'BEST';
+    return `<tr class="${t===S.best?'best':''}${sel?' ref':''}">
+      <td>${String(i+1).padStart(2,'0')}</td>
+      <td>${fmt(t)}</td><td>${diff}</td>
+      <td><button class="ref-btn${sel?' active':''}" data-lap="${i}">${sel?'解除':'比較'}</button></td></tr>`;
+  }).reverse().join('');
   $('#cCount')&&($('#cCount').textContent=S.laps.length);
+  // タップイベントをテーブルに委譲
+  tb.onclick=e=>{
+    const btn=e.target.closest('.ref-btn');if(!btn)return;
+    const i=+btn.dataset.lap;
+    S.refLap=S.refLap===i?null:i;
+    renderLaps();updateLeafletRef();
+  };
 }
 
 /* ================= 描画: Gサークル ================= */
@@ -580,6 +603,8 @@ async function initLeaflet(){
     {maxZoom:19,attribution:'Tiles &copy; Esri'}).addTo(lmap);
   // 色ごとに1本のマルチポリラインを持ち、区間をそこへ振り分ける
   lbuckets=RAMP.map(c=>L.polyline([],{color:c,weight:4,opacity:.95}).addTo(lmap));
+  // 比較ラップ用バケット（半透明・細め）
+  window._lref=RAMP.map(c=>L.polyline([],{color:c,weight:3,opacity:.5,dashArray:'6,4'}).addTo(lmap));
   lmark=L.circleMarker([0,0],{radius:7,weight:2,color:'#fff',
     fillColor:'#fff',fillOpacity:1}).addTo(lmap);
 }
@@ -600,11 +625,22 @@ function updateLeaflet(){
   }
   if(!fitted&&S.track.length>4){fitted=true;fitMap()}
 }
+function updateLeafletRef(){
+  if(!window._lref)return;
+  if(S.refLap==null||!S.lapTraces[S.refLap]){window._lref.forEach(pl=>pl.setLatLngs([]));return}
+  const tr=S.lapTraces[S.refLap];
+  const max=ramgeOf(),groups=RAMP.map(()=>[]);
+  for(let i=1;i<tr.length;i++){
+    const a=tr[i-1],b=tr[i];
+    groups[bucket(val(b),max)].push([[a[0],a[1]],[b[0],b[1]]]);
+  }
+  window._lref.forEach((pl,i)=>pl.setLatLngs(groups[i]));
+}
 function fitMap(){
   if(mapMode==='sat'&&lmap&&S.track.length)
     lmap.fitBounds(L.latLngBounds(S.track.map(p=>[p[0],p[1]])),{padding:[24,24]});
 }
-setInterval(()=>{if(S.role==='coach'&&mapMode==='sat')updateLeaflet()},500);
+setInterval(()=>{if(S.role==='coach'&&mapMode==='sat'){updateLeaflet();updateLeafletRef()}},500);
 
 function setMapMode(m){
   mapMode=m;store.set('mapmode',m);
@@ -642,6 +678,18 @@ function drawMap(){
     mx.beginPath();mx.moveTo(ax,ay);mx.lineTo(bx,by);mx.stroke();
   }
   renderLegend(max);
+  // 比較ラップ（破線・半透明）
+  if(S.refLap!=null&&S.lapTraces[S.refLap]){
+    const tr=S.lapTraces[S.refLap];
+    const rpts=tr.map(p=>[p[1]*k,p[0]]);
+    mx.lineWidth=3;mx.setLineDash([8,5]);mx.globalAlpha=0.55;
+    for(let i=1;i<rpts.length;i++){
+      const [ax,ay]=px(rpts[i-1]),[bx,by]=px(rpts[i]);
+      mx.strokeStyle=RAMP[bucket(val(tr[i]),max)];
+      mx.beginPath();mx.moveTo(ax,ay);mx.lineTo(bx,by);mx.stroke();
+    }
+    mx.setLineDash([]);mx.globalAlpha=1;mx.lineWidth=4;
+  }
   if(S.sf&&S.sf.a){
     const [ax,ay]=px([S.sf.a.lng*k,S.sf.a.lat]),[bx,by]=px([S.sf.b.lng*k,S.sf.b.lat]);
     mx.strokeStyle='#fff';mx.lineWidth=3;mx.lineCap='butt';
@@ -654,6 +702,42 @@ function drawMap(){
   $('#cG').textContent=Math.hypot(S.lat,S.lon).toFixed(2);
   requestAnimationFrame(drawMap);
 }
+
+/* ================= 監督側Gグラフ ================= */
+const cc=$('#coachCircle'),ccx=cc?.getContext('2d');
+function resizeCoachCircle(){
+  if(!cc)return;
+  const box=cc.parentElement;
+  const s=Math.max(120,Math.floor(Math.min(box.clientWidth,mapH()))-12);
+  cc.style.width=s+'px';cc.style.height=s+'px';
+  const d=devicePixelRatio||1;cc.width=s*d;cc.height=s*d;ccx.setTransform(d,0,0,d,0,0);
+}
+if(window.ResizeObserver)new ResizeObserver(()=>{if(S.role==='coach')resizeCoachCircle()}).observe(cc?.parentElement||document.body);
+function drawCoachCircle(){
+  if(S.role!=='coach'||coachView!=='g'||!ccx){requestAnimationFrame(drawCoachCircle);return}
+  const w=cc.clientWidth||280,c=w/2,R=w/2-16,MAX=S.maxG;
+  ccx.clearRect(0,0,w,w);
+  ccx.strokeStyle='#26313d';ccx.fillStyle='#7b8b9c';ccx.font='11px sans-serif';ccx.textAlign='center';
+  for(let i=1;i<=S.rings;i++){const r=MAX*i/S.rings;
+    ccx.beginPath();ccx.arc(c,c,R*r/MAX,0,7);ccx.lineWidth=i===S.rings?1.6:1;ccx.stroke();
+    ccx.fillText(fmtG(r),c,c-R*r/MAX+13)}
+  ccx.beginPath();ccx.moveTo(c-R,c);ccx.lineTo(c+R,c);ccx.moveTo(c,c-R);ccx.lineTo(c,c+R);ccx.lineWidth=1;ccx.stroke();
+  ccx.fillStyle='#3d4c5c';ccx.fillText('加速',c,c-R-4);ccx.fillText('減速',c,c+R+13);
+  if(S.peak>0){ccx.beginPath();ccx.arc(c,c,R*Math.min(S.peak,MAX)/MAX,0,7);
+    ccx.strokeStyle='#5b6b7d';ccx.setLineDash([4,6]);ccx.stroke();ccx.setLineDash([])}
+  const now=performance.now();
+  const clampC=v=>Math.max(-MAX,Math.min(MAX,v));
+  for(const [t,la,lo] of S.trail){const age=(now-t)/3000;
+    ccx.beginPath();ccx.arc(c+R*clampC(la)/MAX,c-R*clampC(lo)/MAX,2.2,0,7);
+    ccx.fillStyle=`rgba(120,160,200,${(1-age)*.5})`;ccx.fill()}
+  const x=c+R*clampC(S.sLat)/MAX,y=c-R*clampC(S.sLon)/MAX;
+  const col=S.sLon<-.05?'--brake':S.sLon>.05?'--accel':'--lat';
+  const rgb=getComputedStyle(document.documentElement).getPropertyValue(col);
+  ccx.beginPath();ccx.moveTo(c,c);ccx.lineTo(x,y);ccx.strokeStyle=rgb;ccx.lineWidth=2;ccx.stroke();
+  ccx.beginPath();ccx.arc(x,y,10,0,7);ccx.fillStyle=rgb;ccx.fill();
+  requestAnimationFrame(drawCoachCircle);
+}
+drawCoachCircle();
 
 /* ================= 通信 ================= */
 const SIGNALS={
@@ -723,7 +807,9 @@ function handle(msg){
     if(rx.length>25)rx.splice(0,rx.length-25);   // 遅れたら間引いて追いつく
   }
   else if(event==='lap'&&S.role==='coach'){
-    S.laps[payload.n-1]=payload.t;S.best=payload.best;renderLaps();
+    S.laps[payload.n-1]=payload.t;S.best=payload.best;
+    if(payload.trace)S.lapTraces[payload.n-1]=payload.trace;
+    renderLaps();
   }
   else if(event==='state'&&S.role==='coach'){
     S.running=payload.running;
