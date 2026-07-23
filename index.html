@@ -997,6 +997,18 @@ $('#colorBy').onclick=()=>{
   if(mapMode==='sat')updateLeaflet();
 };
 $('#colorBy').textContent=colorBy==='speed'?'色: 速度':'色: G';
+$('#cmapView').onclick=()=>{
+  coachView=coachView==='map'?'g':'map';
+  $('#cmapView').textContent=coachView==='map'?'G表示':'マップ表示';
+  const showG=coachView==='g';
+  $('#lmap').classList.toggle('hide', showG||mapMode!=='sat');
+  $('#map').classList.toggle('hide', showG||mapMode==='sat');
+  $('#coachCircle').classList.toggle('hide',!showG);
+  $('#legend').classList.toggle('hide',showG);
+  if(showG){cc.classList.remove('hide');setTimeout(resizeCoachCircle,50)}
+  else if(mapMode==='sat'){$('#lmap').classList.remove('hide');initLeaflet().then(()=>{lmap?.invalidateSize()})}
+       else $('#map').classList.remove('hide');
+};
 addEventListener('resize',()=>{
   if(S.role==='driver')resizeC();
   else if(lmap){$('#lmap').style.height=mapH()+'px';lmap.invalidateSize()}
