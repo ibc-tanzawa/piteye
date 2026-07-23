@@ -92,17 +92,24 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .dtop div{background:var(--bg);padding:6px;text-align:center}
 .dbar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 
-/* 横画面：Gグラフ最優先。円を左いっぱいに、テキストは右の細い帯へ寄せる */
+/* 横画面：Gグラフ最優先。
+   円の大きさは画面の高さで決まるので、右の帯を広げても円は小さくならない。
+   その代わり右側を2列に組んでスクロールなしで収める。 */
 @media (orientation:landscape){
-  .dmain{flex-direction:row;padding:4px;gap:6px}
-  .dcircle{flex:1 1 auto}
-  .dside{flex:0 0 clamp(148px,25vw,210px);justify-content:space-between;overflow-y:auto}
-  .dstats{flex-direction:column;gap:5px}
-  .dtop{grid-template-columns:1fr;gap:1px}
-  .dbar{flex-direction:column;gap:6px}
-  .dbar button{width:100%;padding:8px 10px}
+  body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  .dmain{flex-direction:row;padding:4px;gap:10px}
+  /* 余った横幅の分だけ円を左へ寄せる。ただし端末のスピーカーやノッチに
+     かからないよう、左端には必ず余白を残す。 */
+  .dcircle{flex:1 1 auto;justify-content:flex-start;padding-left:26px}
+  .dside{flex:0 0 clamp(238px,36vw,330px);justify-content:center;gap:8px;overflow-y:auto}
+  /* ラップは1行目に大きく、BEST/LASTは2行目に並べる */
+  .dstats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .dstats>div:first-child{grid-column:1/-1}
+  .dtop{grid-template-columns:1fr 1fr 1fr;gap:1px}
+  .dbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .dbar button{width:100%;padding:9px 6px;font-size:12px}
   #driver>header{padding:4px 12px}
-  .v{font-size:17px}.v.big{font-size:22px}.k{font-size:9px}
+  .v{font-size:16px}.v.big{font-size:21px}.k{font-size:9px}
 }
 
 /* 監督画面 */
