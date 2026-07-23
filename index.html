@@ -184,8 +184,6 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
   box-shadow:0 0 0 4px #fff,0 12px 40px #0009}
 #signal.checker .s{opacity:1}
 #signal button{margin-top:18px}
-.blink{animation:bl 1s steps(2,end) infinite}
-@keyframes bl{50%{opacity:.35}}
 #toast{position:fixed;left:50%;top:60px;transform:translateX(-50%) translateY(-200%);
   background:var(--live);color:#05121f;font-weight:700;padding:14px 20px;border-radius:12px;
   max-width:88vw;text-align:center;font-size:18px;transition:transform .3s;z-index:30;
@@ -898,7 +896,7 @@ const SIGNALS={
   BLACK:{t:'黒旗',s:'ただちにピットへ',bg:'#000',fg:'#fff'},
   CHECKER:{t:'チェッカー',s:'セッション終了',bg:'#fff',fg:'#111'},
   PIT:{t:'PIT IN',s:'次の周でピットイン',bg:'var(--f-pit)',fg:'#fff'},
-  MSG:{t:'',s:'監督より',bg:'var(--live)',fg:'#05121f'},
+  MSG:{t:'',s:'監督より',bg:'#fff',fg:'#111'},
 };
 // 文字数に応じて大きさを決める（短い指示ほど大きく）
 const msgSize=n=>n<=6?'min(15vw,92px)':n<=14?'min(9vw,56px)':n<=30?'min(6vw,36px)':'min(4.5vw,28px)';
@@ -969,7 +967,7 @@ function handle(msg){
     status(true,payload.running?'受信中':'走行停止');
   }
   else if(event==='sig'&&S.role==='driver')showSignal(payload.code);
-  else if(event==='msg'&&S.role==='driver'){showSignal('MSG',payload.text);navigator.vibrate?.([100,60,100])}
+  else if(event==='msg'&&S.role==='driver'){showSignal('MSG',payload.text)}
 }
 
 function status(on,label){
@@ -1073,11 +1071,8 @@ function showSignal(code,text){
   t.style.fontSize=code==='MSG'?msgSize((text||'').length):'';
   el.querySelector('.s').textContent=c.s;
   el.classList.remove('hide');
-  el.classList.toggle('blink',['PIT','YELLOW','SC','OIL'].includes(code));
   el.classList.toggle('checker',code==='CHECKER');
   if(code==='CHECKER')el.style.background='repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/40px 40px';
-  // ピットに入る必要がある合図は強めのパターンで知らせる
-  navigator.vibrate?.(['RED','BLACK','ORANGE'].includes(code)?[300,120,300,120,300]:[200,100,200]);
 }
 $('#sigAck').onclick=()=>{$('#signal').classList.add('hide');sound.stop()};
 $('#mute').onclick=()=>sound.toggle();
@@ -1291,7 +1286,6 @@ function renderSig(code,text){
   const el=$('#cSig');if(!el)return;
   const c=SIGNALS[code];
   el.classList.toggle('none',!c);
-  el.classList.toggle('blink',code==='PIT'||code==='YELLOW');
   const t=el.querySelector('.t');
   if(!c){el.style.background='#0f141b';el.style.color='';t.textContent='なし';t.style.cssText='';
     el.querySelector('.e').textContent='';sigAt=null;return}
