@@ -44,6 +44,14 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 #opt .sw{display:flex;align-items:center;gap:10px;margin-top:14px}
 #opt .sw input{width:auto}
 #opt .note{color:var(--dim);font-size:11px;line-height:1.6;margin:10px 0 0}
+#cal .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+#cal .grid button{padding:10px 6px;font-size:12px;line-height:1.35}
+#cal .grid button.on{background:var(--live);border-color:var(--live);color:#fff}
+#cal .grid button:disabled{opacity:.3}
+#cal .step{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+#cal .step:first-of-type{border-top:0;padding-top:0;margin-top:8px}
+#cal .st{font-size:11px;letter-spacing:.1em;color:var(--live)}
+#cal .val{font-variant-numeric:tabular-nums;color:var(--txt)}
 
 /* 起動画面 */
 #launch{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:24px;max-width:460px;margin:0 auto;width:100%}
@@ -270,6 +278,47 @@ dialog::backdrop{background:#000a}
   </div>
 </section>
 
+<!-- 取り付けキャリブレーション -->
+<div id="cal" class="hide">
+  <div class="sheet">
+    <h2>取り付けキャリブレーション<button id="calClose" style="float:right;padding:4px 12px;font-size:12px">閉じる</button></h2>
+
+    <div class="step">
+      <div class="st">STEP 1 — 停車して水平を記録</div>
+      <p class="note" style="margin:4px 0 8px">平らな場所に停めて、スマホをマウントに固定した状態で押してください。</p>
+      <button id="calGrav" style="width:100%">この姿勢を記録する</button>
+      <p class="note" id="calGravInfo">未記録</p>
+    </div>
+
+    <div class="step">
+      <div class="st">STEP 2 — 車の前はどちら？</div>
+      <p class="note" style="margin:4px 0 0">スマホから見て、車の進行方向にあたる面を選びます。</p>
+      <div class="grid">
+        <button data-ax="y+">画面の<b>上</b>が前</button>
+        <button data-ax="y-">画面の<b>下</b>が前</button>
+        <button data-ax="x+">画面の<b>右</b>が前</button>
+        <button data-ax="x-">画面の<b>左</b>が前</button>
+        <button data-ax="z-">画面が<b>自分</b>向き</button>
+        <button data-ax="z+">画面が<b>前</b>向き</button>
+      </div>
+      <p class="note" id="calAxInfo">未選択（灰色は今の姿勢では基準にできない向きです）</p>
+    </div>
+
+    <div class="step">
+      <div class="st">STEP 3 — 微調整</div>
+      <label>ヨー角<b id="vTrim">0°</b></label>
+      <input type="range" id="sTrim" min="-45" max="45" step="1" value="0">
+      <p class="note" style="margin-top:2px">斜めに取り付けている場合、ここでずれを詰めます。</p>
+    </div>
+
+    <div class="step">
+      <button id="calSave" class="primary" style="width:100%">保存して使う</button>
+      <button id="calClear" style="width:100%;margin-top:8px">GPS自動学習に戻す</button>
+      <p class="note">保存するとGPSに依存せず前後・横Gが確定します。マウント位置を変えたときだけやり直してください。</p>
+    </div>
+  </div>
+</div>
+
 <!-- 表示設定 -->
 <div id="opt" class="hide">
   <div class="sheet">
@@ -308,8 +357,46 @@ let coachView='map';  // 'map' | 'g'
 
 /* ================= センサー ================= */
 let g=[0,0,9.81],fwd=null,ready=false;
+
+/* ===== 取り付けキャリブレーション =====
+   マウント固定が前提なら、停車中に重力で傾き(ピッチ/ロール)を、
+   前方向の指定でヨーを決めれば、GPSに頼らず軸が確定する。
+   重力は鉛直軸まわりに対称なので、静止データだけではヨーは決まらない。 */
+const CAL_AXES={
+  'y+':[0,1,0], 'y-':[0,-1,0], 'x+':[1,0,0], 'x-':[-1,0,0],
+  'z-':[0,0,-1],'z+':[0,0,1]
+};
+const CAL_LABEL={'y+':'画面の上','y-':'画面の下','x+':'画面の右','x-':'画面の左',
+                 'z-':'画面の裏側','z+':'画面の向き'};
+let cal=(()=>{ try{const o=JSON.parse(store.get('cal','')||'null');
+  return o&&o.gn?o:{gn:null,axis:null,trim:0,locked:false}}catch(e){
+  return {gn:null,axis:null,trim:0,locked:false}} })();
+
+/* 選んだ軸を水平面へ落として前方向にする。鉛直に近い軸は基準にできない。 */
+function calFwd(gn,axis,trimDeg){
+  const v=CAL_AXES[axis]; if(!v||!gn)return null;
+  let f=sub(v,scale(gn,dot(v,gn)));
+  const mag=Math.hypot(...f);
+  if(mag<0.3)return null;                       // その面はほぼ真上/真下を向いている
+  f=f.map(c=>c/mag);
+  if(trimDeg){                                   // 鉛直軸まわりに回して微調整
+    const th=trimDeg*Math.PI/180,c=Math.cos(th),si=Math.sin(th);
+    const f0=f.slice(),kxf=cross(gn,f0),kdf=dot(gn,f0);
+    f=[0,1,2].map(i=>f0[i]*c+kxf[i]*si+gn[i]*kdf*(1-c));
+  }
+  return norm(f);
+}
+function applyCal(){
+  if(!cal.locked||!cal.gn){return false}
+  const f=calFwd(cal.gn,cal.axis,cal.trim);
+  if(!f)return false;
+  fwd=f;fwdOK=true;return true;
+}
 let hAvg=[0,0,0];                 // 直近の水平加速度（デバイス座標）
-let acc=[0,0],fwdOK=false;        // 前方向の学習結果
+let accV=[0,0,0],fwdOK=false;     // 前方向の学習結果（デバイス座標のまま蓄積する）
+/* 水平加速度の履歴。GPS速度は加速度センサーより1秒ほど遅れるため、
+   GPSの区間[前回,今回]に対応する時刻のセンサー値を取り出して突き合わせる。 */
+const HBUF=[];
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const scale=(a,s)=>a.map(v=>v*s);
@@ -317,12 +404,6 @@ const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
 const norm=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n)};
 
 /* 重力と直交する平面上に、デバイス基準の安定した2軸をつくる */
-function horizBasis(gn){
-  let r=Math.abs(dot([1,0,0],gn))>0.9?[0,1,0]:[1,0,0];
-  const e1=norm(sub(r,scale(gn,dot(r,gn))));
-  return [e1,cross(gn,e1)];
-}
-
 /* 表示用ローパス。取得レートは落とさず、描画と数値表示だけをまろやかにする。
    係数を 1-exp(-dt/tau) で作るので、サンプル間隔が揺れても効き方が変わらない。 */
 const SM={t:0};
@@ -359,6 +440,9 @@ function onMotion(e){
   const lin=hasLin?[la.x,la.y,la.z]:sub(inc,g);
   const h=sub(lin,scale(gn,dot(lin,gn)));
   hAvg=hAvg.map((c,i)=>c*0.85+h[i]*0.15);                    // GPS周期に合わせて平滑化
+  const nowMs=Date.now();
+  HBUF.push([nowMs,h[0],h[1],h[2]]);                         // 学習用の履歴（デバイス座標）
+  while(HBUF.length&&nowMs-HBUF[0][0]>6000)HBUF.shift();
   const f=fwd||norm(sub([0,0,-1],scale(gn,dot([0,0,-1],gn))));  // 学習前は背面カメラ方向で暫定
   const fh=norm(sub(f,scale(gn,dot(f,gn)))),rt=cross(fh,gn);
   S.lon=dot(h,fh)/9.80665;S.lat=dot(h,rt)/9.80665;
@@ -382,16 +466,30 @@ function learnForward(p){
     let dh=Math.abs(hd-prev.hd)%360;if(dh>180)dh=360-dh;
     if(dh>8)return;
   }
+  if(cal.locked)return;                                 // 校正済みなら学習しない
   const a=(sp-prev.sp)/dt;                              // 実際の前後加速度 m/s²
   if(Math.abs(a)<0.4)return;                            // 定速走行は情報量がない
-  const gn=norm(g),[e1,e2]=horizBasis(gn);
-  acc=[acc[0]*0.995+dot(hAvg,e1)*a, acc[1]*0.995+dot(hAvg,e2)*a];
-  const mag=Math.hypot(...acc);
-  if(mag<0.8)return;
-  const u=[acc[0]/mag,acc[1]/mag];
-  fwd=norm([e1[0]*u[0]+e2[0]*u[1], e1[1]*u[0]+e2[1]*u[1], e1[2]*u[0]+e2[2]*u[1]]);
+
+  /* GPSが示す区間[前回,今回]と同じ時刻のセンサー値を平均する。
+     現在値をそのまま使うとGPSの遅れの分だけ別の場面と突き合わせることになり、
+     符号が反転して「加速なのに減速側」になる。 */
+  let sx=0,sy=0,sz=0,cnt=0;
+  for(const [ts,hx,hy,hz] of HBUF){
+    if(ts>=prev.t&&ts<=now){sx+=hx;sy+=hy;sz+=hz;cnt++}
+  }
+  if(cnt<3)return;                                      // 対応するセンサー値が足りない
+  const hw=[sx/cnt,sy/cnt,sz/cnt];
+  if(Math.hypot(...hw)<0.25)return;                     // センサー側が無反応なら学習しない
+
+  /* デバイス座標のまま蓄積する。horizBasisは端末の傾きで基底が不連続に切り替わり、
+     蓄積値が別の座標系の値と混ざって符号が飛ぶため使わない。 */
+  accV=accV.map((c,i)=>c*0.995+hw[i]*a);
+  const mag=Math.hypot(...accV);
+  if(mag<1.2)return;                                    // 確信が持てるまで前方向を決めない
+  const gn=norm(g);
+  fwd=norm(sub(accV,scale(gn,dot(accV,gn))));           // 水平面へ落として前方向とする
   if(!fwdOK){fwdOK=true;toast('前方向を自動設定しました')}
-  $('#btnFwd').textContent='0セット済み';
+  if(!cal.locked)$('#btnFwd').textContent='0セット済み';
 }
 
 async function startSensors(){
@@ -545,14 +643,15 @@ function drawCircle(){
     cx.beginPath();cx.arc(c,c,R*r/MAX,0,7);cx.lineWidth=i===S.rings?1.6:1;cx.stroke();
     cx.fillText(fmtG(r),c,c-R*r/MAX+13)}
   cx.beginPath();cx.moveTo(c-R,c);cx.lineTo(c+R,c);cx.moveTo(c,c-R);cx.lineTo(c,c+R);cx.lineWidth=1;cx.stroke();
-  cx.fillStyle='#3d4c5c';cx.fillText('加速',c,c-R-4);cx.fillText('減速',c,c+R+13);
+  cx.fillStyle='#3d4c5c';cx.fillText('減速',c,c-R-4);cx.fillText('加速',c,c+R+13);
   if(S.peak>0){cx.beginPath();cx.arc(c,c,R*Math.min(S.peak,MAX)/MAX,0,7);
     cx.strokeStyle='#5b6b7d';cx.setLineDash([4,6]);cx.stroke();cx.setLineDash([])}
   const now=performance.now();
   for(const [t,la,lo] of S.trail){const age=(now-t)/3000;
-    cx.beginPath();cx.arc(c+R*clamp(la)/MAX,c-R*clamp(lo)/MAX,2.2,0,7);
+    cx.beginPath();cx.arc(c+R*clamp(la)/MAX,c+R*clamp(lo)/MAX,2.2,0,7);
     cx.fillStyle=`rgba(120,160,200,${(1-age)*.5})`;cx.fill()}
-  const x=c+R*clamp(S.sLat)/MAX,y=c-R*clamp(S.sLon)/MAX;
+  // 前後は「ブレーキで上」。荷重が前に移る向きにボールが転がる（G-Bowlと同じ）
+  const x=c+R*clamp(S.sLat)/MAX,y=c+R*clamp(S.sLon)/MAX;
   const col=S.sLon<-.05?'--brake':S.sLon>.05?'--accel':'--lat';
   const rgb=getComputedStyle(document.documentElement).getPropertyValue(col);
   cx.beginPath();cx.moveTo(c,c);cx.lineTo(x,y);cx.strokeStyle=rgb;cx.lineWidth=2;cx.stroke();
@@ -722,15 +821,15 @@ function drawCoachCircle(){
     ccx.beginPath();ccx.arc(c,c,R*r/MAX,0,7);ccx.lineWidth=i===S.rings?1.6:1;ccx.stroke();
     ccx.fillText(fmtG(r),c,c-R*r/MAX+13)}
   ccx.beginPath();ccx.moveTo(c-R,c);ccx.lineTo(c+R,c);ccx.moveTo(c,c-R);ccx.lineTo(c,c+R);ccx.lineWidth=1;ccx.stroke();
-  ccx.fillStyle='#3d4c5c';ccx.fillText('加速',c,c-R-4);ccx.fillText('減速',c,c+R+13);
+  ccx.fillStyle='#3d4c5c';ccx.fillText('減速',c,c-R-4);ccx.fillText('加速',c,c+R+13);
   if(S.peak>0){ccx.beginPath();ccx.arc(c,c,R*Math.min(S.peak,MAX)/MAX,0,7);
     ccx.strokeStyle='#5b6b7d';ccx.setLineDash([4,6]);ccx.stroke();ccx.setLineDash([])}
   const now=performance.now();
   const clampC=v=>Math.max(-MAX,Math.min(MAX,v));
   for(const [t,la,lo] of S.trail){const age=(now-t)/3000;
-    ccx.beginPath();ccx.arc(c+R*clampC(la)/MAX,c-R*clampC(lo)/MAX,2.2,0,7);
+    ccx.beginPath();ccx.arc(c+R*clampC(la)/MAX,c+R*clampC(lo)/MAX,2.2,0,7);
     ccx.fillStyle=`rgba(120,160,200,${(1-age)*.5})`;ccx.fill()}
-  const x=c+R*clampC(S.sLat)/MAX,y=c-R*clampC(S.sLon)/MAX;
+  const x=c+R*clampC(S.sLat)/MAX,y=c+R*clampC(S.sLon)/MAX;
   const col=S.sLon<-.05?'--brake':S.sLon>.05?'--accel':'--lat';
   const rgb=getComputedStyle(document.documentElement).getPropertyValue(col);
   ccx.beginPath();ccx.moveTo(c,c);ccx.lineTo(x,y);ccx.strokeStyle=rgb;ccx.lineWidth=2;ccx.stroke();
@@ -1029,11 +1128,74 @@ $('#btnStart').onclick=async e=>{
   }
   net.send('state',{running:S.running});
 };
+/* ===== 取り付けキャリブレーション UI ===== */
+let calDraft={gn:null,axis:null,trim:0};
+
+function calSyncBtn(){
+  $('#btnFwd').textContent = cal.locked ? '校正済み' : (fwdOK?'0セット済み':'0セット');
+}
+function calRenderAx(){
+  let any=false;
+  document.querySelectorAll('#cal .grid button').forEach(b=>{
+    const ok=!!calFwd(calDraft.gn,b.dataset.ax,0);
+    b.disabled=!calDraft.gn||!ok;
+    b.classList.toggle('on',calDraft.axis===b.dataset.ax);
+    if(ok)any=true;
+  });
+  $('#calAxInfo').textContent = !calDraft.gn ? 'STEP 1 を先に行ってください'
+    : calDraft.axis ? CAL_LABEL[calDraft.axis]+'を車の前方向として使います'
+    : (any?'向きを選んでください（灰色は今の姿勢では基準にできません）':'この姿勢では基準にできる面がありません');
+}
+function calOpen(){
+  calDraft={gn:cal.gn?cal.gn.slice():null,axis:cal.axis,trim:cal.trim||0};
+  if(calDraft.gn){
+    const gv=norm(calDraft.gn);
+    const tilt=Math.acos(Math.min(1,Math.abs(gv[2])))*180/Math.PI;
+    $('#calGravInfo').textContent='記録済み（画面の傾き 約'+tilt.toFixed(0)+'°）';
+  }else $('#calGravInfo').textContent='未記録';
+  $('#sTrim').value=calDraft.trim;$('#vTrim').textContent=calDraft.trim+'°';
+  calRenderAx();
+  $('#cal').classList.remove('hide');
+}
 $('#btnFwd').onclick=()=>{
-  fwd=null;fwdOK=false;acc=[0,0];lastFix=null;S.peak=0;
-  $('#btnFwd').textContent='0セット';
-  toast('マウントを直したら、直線で加速・減速してください');
+  if(!ready){toast('先に計測開始を押してセンサーを有効にしてください');return}
+  calOpen();
 };
+$('#calClose').onclick=()=>$('#cal').classList.add('hide');
+$('#cal').onclick=e=>{if(e.target.id==='cal')$('#cal').classList.add('hide')};
+
+$('#calGrav').onclick=()=>{
+  if(!ready){toast('センサーが動いていません');return}
+  const m=Math.hypot(...g);
+  if(m<8.5||m>11){toast('揺れています。停車して安定してから押してください');return}
+  calDraft.gn=norm(g);
+  const tilt=Math.acos(Math.min(1,Math.abs(calDraft.gn[2])))*180/Math.PI;
+  $('#calGravInfo').textContent='記録しました（画面の傾き 約'+tilt.toFixed(0)+'°）';
+  calRenderAx();
+};
+document.querySelectorAll('#cal .grid button').forEach(b=>{
+  b.onclick=()=>{calDraft.axis=b.dataset.ax;calRenderAx()};
+});
+$('#sTrim').oninput=e=>{calDraft.trim=+e.target.value;$('#vTrim').textContent=calDraft.trim+'°'};
+
+$('#calSave').onclick=()=>{
+  if(!calDraft.gn){toast('STEP 1 の姿勢記録が必要です');return}
+  if(!calDraft.axis){toast('STEP 2 で車の前方向を選んでください');return}
+  const f=calFwd(calDraft.gn,calDraft.axis,calDraft.trim);
+  if(!f){toast('その向きは今の姿勢では使えません');return}
+  cal={gn:calDraft.gn,axis:calDraft.axis,trim:calDraft.trim,locked:true};
+  store.set('cal',JSON.stringify(cal));
+  applyCal();S.peak=0;calSyncBtn();
+  $('#cal').classList.add('hide');
+  toast('取り付けを保存しました。GPSに依存せずGを表示します');
+};
+$('#calClear').onclick=()=>{
+  cal={gn:null,axis:null,trim:0,locked:false};store.set('cal','');
+  fwd=null;fwdOK=false;accV=[0,0,0];HBUF.length=0;lastFix=null;S.peak=0;
+  calSyncBtn();$('#cal').classList.add('hide');
+  toast('GPS自動学習に戻しました。直線で加速・減速してください');
+};
+applyCal();calSyncBtn();
 $('#btnSF').onclick=()=>{
   if(!LT.prev||!LT.dir){toast('少し走ってから押してください（進行方向が必要です）');return}
   setSFLine({x:LT.prev.x,y:LT.prev.y},LT.dir,true);
