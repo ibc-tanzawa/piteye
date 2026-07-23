@@ -33,21 +33,21 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 #lapTable .ref{background:rgba(255,199,74,.07)}
 #lapTable td:last-child{padding-right:4px}
 
-/* 表示設定シート */
-#opt{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:60;display:flex;align-items:flex-end}
-#opt .sheet{width:100%;max-width:520px;margin:0 auto;background:var(--panel);
+/* ボトムシート（表示設定・キャリブレーション共通） */
+#opt,#cal{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:60;display:flex;align-items:flex-end}
+#opt .sheet,#cal .sheet{width:100%;max-width:520px;margin:0 auto;background:var(--panel);
   border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;
-  padding:14px 18px calc(20px + env(safe-area-inset-bottom));max-height:82vh;overflow:auto}
-#opt h2{margin:0 0 4px;font-size:13px;letter-spacing:.14em;color:var(--dim)}
-#opt label b{float:right;color:var(--live);font-size:13px;letter-spacing:0}
-#opt input[type=range]{width:100%;accent-color:var(--live);padding:0;border:0;background:none}
-#opt .sw{display:flex;align-items:center;gap:10px;margin-top:14px}
-#opt .sw input{width:auto}
-#opt .note{color:var(--dim);font-size:11px;line-height:1.6;margin:10px 0 0}
-#cal .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
-#cal .grid button{padding:10px 6px;font-size:12px;line-height:1.35}
-#cal .grid button.on{background:var(--live);border-color:var(--live);color:#fff}
-#cal .grid button:disabled{opacity:.3}
+  padding:14px 18px calc(20px + env(safe-area-inset-bottom));
+  max-height:82svh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#opt h2,#cal h2{margin:0 0 4px;font-size:13px;letter-spacing:.14em;color:var(--dim)}
+#opt label b,#cal label b{float:right;color:var(--live);font-size:13px;letter-spacing:0}
+#opt input[type=range],#cal input[type=range]{width:100%;accent-color:var(--live);padding:0;border:0;background:none}
+#opt .sw,#cal .sw{display:flex;align-items:center;gap:10px;margin-top:14px}
+#opt .sw input,#cal .sw input{width:auto}
+#opt .note,#cal .note{color:var(--dim);font-size:11px;line-height:1.6;margin:10px 0 0}
+#cal select{width:100%;margin-top:6px;padding:10px;font:inherit;font-size:14px;
+  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:10px}
+#cal select option:disabled{color:#4a5866}
 #cal .step{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 #cal .step:first-of-type{border-top:0;padding-top:0;margin-top:8px}
 #cal .st{font-size:11px;letter-spacing:.1em;color:var(--live)}
@@ -293,15 +293,15 @@ dialog::backdrop{background:#000a}
     <div class="step">
       <div class="st">STEP 2 — 車の前はどちら？</div>
       <p class="note" style="margin:4px 0 0">スマホから見て、車の進行方向にあたる面を選びます。</p>
-      <div class="grid">
-        <button data-ax="y+">画面の<b>上</b>が前</button>
-        <button data-ax="y-">画面の<b>下</b>が前</button>
-        <button data-ax="x+">画面の<b>右</b>が前</button>
-        <button data-ax="x-">画面の<b>左</b>が前</button>
-        <button data-ax="z-">画面が<b>自分</b>向き</button>
-        <button data-ax="z+">画面が<b>前</b>向き</button>
-      </div>
-      <p class="note" id="calAxInfo">未選択（灰色は今の姿勢では基準にできない向きです）</p>
+      <select id="calAx">
+        <option value="z-">画面が自分（運転席）を向いている</option>
+        <option value="z+">画面が車の前を向いている</option>
+        <option value="y+">画面の上端が車の前</option>
+        <option value="y-">画面の下端が車の前</option>
+        <option value="x+">画面の右端が車の前</option>
+        <option value="x-">画面の左端が車の前</option>
+      </select>
+      <p class="note" id="calAxInfo">STEP 1 を先に行ってください</p>
     </div>
 
     <div class="step">
@@ -366,8 +366,8 @@ const CAL_AXES={
   'y+':[0,1,0], 'y-':[0,-1,0], 'x+':[1,0,0], 'x-':[-1,0,0],
   'z-':[0,0,-1],'z+':[0,0,1]
 };
-const CAL_LABEL={'y+':'画面の上','y-':'画面の下','x+':'画面の右','x-':'画面の左',
-                 'z-':'画面の裏側','z+':'画面の向き'};
+const CAL_LABEL={'y+':'画面の上端','y-':'画面の下端','x+':'画面の右端','x-':'画面の左端',
+                 'z-':'画面の裏側','z+':'画面が向いている側'};
 let cal=(()=>{ try{const o=JSON.parse(store.get('cal','')||'null');
   return o&&o.gn?o:{gn:null,axis:null,trim:0,locked:false}}catch(e){
   return {gn:null,axis:null,trim:0,locked:false}} })();
@@ -1135,19 +1135,24 @@ function calSyncBtn(){
   $('#btnFwd').textContent = cal.locked ? '校正済み' : (fwdOK?'0セット済み':'0セット');
 }
 function calRenderAx(){
-  let any=false;
-  document.querySelectorAll('#cal .grid button').forEach(b=>{
-    const ok=!!calFwd(calDraft.gn,b.dataset.ax,0);
-    b.disabled=!calDraft.gn||!ok;
-    b.classList.toggle('on',calDraft.axis===b.dataset.ax);
+  const sel=$('#calAx');let any=false;
+  [...sel.options].forEach(o=>{
+    const ok=!!calFwd(calDraft.gn,o.value,0);
+    o.disabled=!calDraft.gn||!ok;                 // 今の姿勢で鉛直に近い面は選べない
     if(ok)any=true;
   });
+  // 選択中が使えなくなったら、使える先頭に寄せる
+  if(calDraft.gn&&(!calDraft.axis||!calFwd(calDraft.gn,calDraft.axis,0))){
+    const first=[...sel.options].find(o=>!o.disabled);
+    calDraft.axis=first?first.value:null;
+  }
+  sel.value=calDraft.axis||'';
   $('#calAxInfo').textContent = !calDraft.gn ? 'STEP 1 を先に行ってください'
     : calDraft.axis ? CAL_LABEL[calDraft.axis]+'を車の前方向として使います'
-    : (any?'向きを選んでください（灰色は今の姿勢では基準にできません）':'この姿勢では基準にできる面がありません');
+    : (any?'向きを選んでください':'この姿勢では基準にできる面がありません');
 }
 function calOpen(){
-  calDraft={gn:cal.gn?cal.gn.slice():null,axis:cal.axis,trim:cal.trim||0};
+  calDraft={gn:cal.gn?cal.gn.slice():null,axis:cal.axis||'z-',trim:cal.trim||0};
   if(calDraft.gn){
     const gv=norm(calDraft.gn);
     const tilt=Math.acos(Math.min(1,Math.abs(gv[2])))*180/Math.PI;
@@ -1173,9 +1178,7 @@ $('#calGrav').onclick=()=>{
   $('#calGravInfo').textContent='記録しました（画面の傾き 約'+tilt.toFixed(0)+'°）';
   calRenderAx();
 };
-document.querySelectorAll('#cal .grid button').forEach(b=>{
-  b.onclick=()=>{calDraft.axis=b.dataset.ax;calRenderAx()};
-});
+$('#calAx').onchange=e=>{calDraft.axis=e.target.value;calRenderAx()};
 $('#sTrim').oninput=e=>{calDraft.trim=+e.target.value;$('#vTrim').textContent=calDraft.trim+'°'};
 
 $('#calSave').onclick=()=>{
