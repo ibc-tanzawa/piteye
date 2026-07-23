@@ -276,7 +276,11 @@ dialog::backdrop{background:#000a}
     <label>目盛リング<b id="vRing"></b></label>
     <input type="range" id="sRing" min="2" max="5" step="1">
     <button id="sfReset" style="width:100%;margin-top:16px">S/Fラインを消して自動検出に戻す</button>
-    <p class="note">なめらかさは表示だけに効きます。記録・最大G・監督への送信は生の値のままです。</p>
+    <div class="sw" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+      <input type="checkbox" id="sDemo"><span style="font-size:13px">傾きデモモード（重力でボールを動かす）</span>
+    </div>
+    <p class="note">なめらかさは表示だけに効きます。記録・最大G・監督への送信は生の値のままです。
+    傾きデモモードは動作確認・展示用で、スマホを傾けた向きにボールが転がります（計測は無効）。</p>
   </div>
 </div>
 
@@ -294,6 +298,7 @@ const S={role:null,room:store.get('room'),online:false,
   sLat:0,sLon:0,                                   // 表示用（平滑化後）。記録は生値を使う
   tau:num('tau',.30),fastTau:num('ftau',.10),thr:num('thr',.30),
   adapt:store.get('adapt','1')!=='0',
+  demo:false,                                     // 傾きデモモード（重力でドットを動かす。計測とは排他）
   maxG:num('maxg',1.5),rings:num('rings',3),
   trail:[],track:[],log:[],laps:[],lapStart:null,sf:store.get('sf')?JSON.parse(store.get('sf')):null,
   ch:null,best:null};
@@ -340,6 +345,19 @@ function onMotion(e){
   const grav=hasLin?[inc[0]-la.x,inc[1]-la.y,inc[2]-la.z]:inc;
   const lp=hasLin?0.06:0.01;             // フォールバック時は遅くして一定Gの吸収を抑える
   g=g.map((c,i)=>c*(1-lp)+grav[i]*lp);
+
+  /* 傾きデモモード：加速度ではなく“重力の向き”をそのままドットに割り当てる。
+     皿の上のボールと同じで、スマホを傾けた低い側へ転がる。計測は行わない。 */
+  if(S.demo){
+    const ang=(screen.orientation&&screen.orientation.angle)||window.orientation||0;
+    const r=ang*Math.PI/180,cs=Math.cos(r),sn=Math.sin(r);
+    const sx=inc[0]*cs-inc[1]*sn, sy=inc[0]*sn+inc[1]*cs;   // 端末座標→画面座標
+    S.lat=sx/9.80665; S.lon=-sy/9.80665;                    // 画面の下がった側へ
+    const t=performance.now();smooth(S.lat,S.lon,t);
+    S.trail.push([t,S.sLat,S.sLon]);
+    while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
+    return;
+  }
   if(!ready||!S.running)return;          // 停止中はここまで
   const gn=norm(g);
   /* 水平加速度：真の線形加速度があればそれを、無ければ重力差分（この場合のみ長時間Gは弱まる）*/
@@ -913,6 +931,7 @@ addEventListener('resize',()=>{
 /* ドライバー操作 */
 $('#btnStart').onclick=async e=>{
   if(!ready&&!await startSensors())return;
+  if(S.demo){S.demo=false;$('#sDemo').checked=false}   // 計測とデモは排他
   S.running=!S.running;
   e.target.textContent=S.running?'計測停止':'計測開始';
   if(S.running){
@@ -943,6 +962,7 @@ function optSync(){
   $('#sMax').value=S.maxG;  $('#vMax').textContent=fmtG(S.maxG);
   $('#sRing').value=S.rings;$('#vRing').textContent=S.rings+'本';
   $('#sAdapt').checked=S.adapt;
+  $('#sDemo').checked=S.demo;
 }
 $('#btnOpt').onclick=()=>{optSync();$('#opt').classList.remove('hide')};
 $('#optClose').onclick=()=>$('#opt').classList.add('hide');
@@ -951,6 +971,13 @@ $('#sTau').oninput=e=>{S.tau=+e.target.value;store.set('tau',S.tau);optSync()};
 $('#sMax').oninput=e=>{S.maxG=+e.target.value;store.set('maxg',S.maxG);optSync()};
 $('#sRing').oninput=e=>{S.rings=+e.target.value;store.set('rings',S.rings);optSync()};
 $('#sAdapt').onchange=e=>{S.adapt=e.target.checked;store.set('adapt',S.adapt?'1':'0')};
+$('#sDemo').onchange=e=>{
+  S.demo=e.target.checked;smoothReset();
+  if(S.demo){
+    if(S.running)$('#btnStart').click();          // 計測中なら止める（排他）
+    toast('傾きデモモード：スマホを傾けるとボールが転がります');
+  }else toast('傾きデモモードを解除しました');
+};
 $('#sfReset').onclick=()=>{clearSF();toast('S/Fラインを消しました。次に走り出した地点で自動設定します')};
 $('#btnCsv').onclick=()=>{
   if(!S.log.length){toast('記録データがありません');return}
