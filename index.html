@@ -147,16 +147,30 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 .laps td{padding:4px 6px;border-bottom:1px solid var(--line)}
 .laps td:last-child{text-align:right;color:var(--dim)}
 .laps tr.best td{color:var(--accel)}
-.flags{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.flags button{padding:16px 6px;font-weight:700;letter-spacing:.08em}
+.flags{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.flags button{padding:11px 4px;font-weight:700;letter-spacing:.04em;font-size:13px;line-height:1.3}
 .f-red{background:var(--f-red);border-color:var(--f-red);color:#fff}
 .f-yellow{background:var(--f-yellow);border-color:var(--f-yellow);color:#111}
 .f-black{background:#000;border-color:#555;color:#fff}
 .f-chk{background:repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/14px 14px;color:#fff;text-shadow:0 0 4px #000;border-color:#888}
 .f-pit{background:var(--f-pit);border-color:var(--f-pit);color:#fff}
-.f-clear{background:var(--panel)}
+/* オイル旗：黄地に赤の縦縞 */
+.f-oil{background:repeating-linear-gradient(90deg,var(--f-yellow) 0 11px,var(--f-red) 11px 22px);
+  color:#fff;text-shadow:0 1px 3px #000,0 0 8px #000;border-color:#a88}
+/* 黒白旗（警告旗）：斜めに2分割 */
+.f-warn{background:linear-gradient(135deg,#111 0 50%,#f2f2f2 50% 100%);
+  color:#fff;text-shadow:0 1px 3px #000,0 0 8px #000;border-color:#888}
+/* オレンジディスク旗：黒地にオレンジの円 */
+.f-orange{background:radial-gradient(circle at 50% 50%,#ff8c1a 0 34%,#111 34%);
+  color:#fff;text-shadow:0 1px 3px #000,0 0 8px #000;border-color:#a56}
+/* セーフティカー：黄旗＋SCボード */
+.f-sc{background:linear-gradient(90deg,var(--f-yellow) 0 58%,#f2f2f2 58% 100%);color:#111;border-color:#c9a800}
+.f-clear{background:var(--panel);grid-column:1/-1}
 .send{display:flex;gap:8px;margin-top:8px}
-.send input{flex:1}
+/* アドバイス入力はピットイン(青)と紛れないよう白地・黒文字にする */
+.send input{flex:1;background:#fff;color:#111;border-color:#dfe5ea}
+.send input::placeholder{color:#8a949c}
+.send input:focus{border-color:var(--live);outline:none}
 .msgs{margin-top:8px;font-size:13px;color:var(--dim);max-height:80px;overflow:auto}
 
 /* フラッグ全画面表示 */
@@ -287,6 +301,10 @@ dialog::backdrop{background:#000a}
     <div class="flags">
       <button class="f-red" data-sig="RED">赤旗</button>
       <button class="f-yellow" data-sig="YELLOW">黄旗</button>
+      <button class="f-sc" data-sig="SC">SC導入</button>
+      <button class="f-oil" data-sig="OIL">オイル</button>
+      <button class="f-warn" data-sig="WARN">警告</button>
+      <button class="f-orange" data-sig="ORANGE">車両トラブル</button>
       <button class="f-black" data-sig="BLACK">黒旗</button>
       <button class="f-chk" data-sig="CHECKER">チェッカー</button>
       <button class="f-pit" data-sig="PIT">ピットイン</button>
@@ -613,8 +631,12 @@ function checkLap(p){
   }
   LT.last=tc;LT.dist=0;S.lapStart=tc;
 }
-const fmt=ms=>ms==null?'--:--.---':
-  `${Math.floor(ms/60000)}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
+/* 通過時刻は線形補間で小数ミリ秒まで持っているので、表示のときだけ整数に丸める。 */
+const fmt=ms=>{
+  if(ms==null)return '--:--.---';
+  const v=Math.max(0,Math.round(ms));
+  return `${Math.floor(v/60000)}:${String(Math.floor(v/1000)%60).padStart(2,'0')}.${String(v%1000).padStart(3,'0')}`;
+};
 function pushLap(t){
   if(S.role==='driver'){
     $('#dLast').textContent=fmt(t);$('#dBest').textContent=fmt(S.best);
@@ -861,9 +883,18 @@ function drawCoachCircle(){
 drawCoachCircle();
 
 /* ================= 通信 ================= */
+const SH='0 2px 8px #000, 0 0 20px #000';   // 縞・分割背景でも文字を読ませる
 const SIGNALS={
   RED:{t:'赤旗',s:'走行中止・徐行',bg:'var(--f-red)',fg:'#fff'},
   YELLOW:{t:'黄旗',s:'追い越し禁止・減速',bg:'var(--f-yellow)',fg:'#111'},
+  SC:{t:'SC導入',s:'追い越し禁止・隊列走行',
+      bg:'linear-gradient(90deg,var(--f-yellow) 0 58%,#f2f2f2 58% 100%)',fg:'#111'},
+  OIL:{t:'オイル',s:'路面が滑りやすい',
+       bg:'repeating-linear-gradient(90deg,#ffd400 0 40px,#e01a1a 40px 80px)',fg:'#fff',sh:SH},
+  WARN:{t:'警告',s:'危険な走行・要注意',
+        bg:'linear-gradient(135deg,#111 0 50%,#f2f2f2 50% 100%)',fg:'#fff',sh:SH},
+  ORANGE:{t:'車両トラブル',s:'車両に異常・ピットインへ',
+          bg:'radial-gradient(circle at 50% 42%,#ff8c1a 0 30%,#111 30%)',fg:'#fff',sh:SH},
   BLACK:{t:'黒旗',s:'ただちにピットへ',bg:'#000',fg:'#fff'},
   CHECKER:{t:'チェッカー',s:'セッション終了',bg:'#fff',fg:'#111'},
   PIT:{t:'PIT IN',s:'次の周でピットイン',bg:'var(--f-pit)',fg:'#fff'},
@@ -1019,7 +1050,7 @@ const sound={
   // 赤旗・黒旗・ピットは見落とすと致命的なので、確認するまで繰り返す
   repeat(code){
     this.stop();
-    if(!['RED','BLACK','PIT'].includes(code))return;
+    if(!['RED','BLACK','PIT','ORANGE'].includes(code))return;
     this.timer=setInterval(()=>this.play(),3000);
   },
   stop(){clearInterval(this.timer);this.timer=null},
@@ -1036,15 +1067,17 @@ function showSignal(code,text){
   const c=SIGNALS[code];if(!c)return;
   sound.play();sound.repeat(code);
   el.style.background=c.bg;el.style.color=c.fg;
+  el.style.textShadow=c.sh||'';                       // 縞・分割背景のときだけ影を付ける
   const t=el.querySelector('.t');
   t.textContent=code==='MSG'?text:c.t;
   t.style.fontSize=code==='MSG'?msgSize((text||'').length):'';
   el.querySelector('.s').textContent=c.s;
   el.classList.remove('hide');
-  el.classList.toggle('blink',code==='PIT'||code==='YELLOW');
+  el.classList.toggle('blink',['PIT','YELLOW','SC','OIL'].includes(code));
   el.classList.toggle('checker',code==='CHECKER');
   if(code==='CHECKER')el.style.background='repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/40px 40px';
-  navigator.vibrate?.(code==='RED'||code==='BLACK'?[300,120,300,120,300]:[200,100,200]);
+  // ピットに入る必要がある合図は強めのパターンで知らせる
+  navigator.vibrate?.(['RED','BLACK','ORANGE'].includes(code)?[300,120,300,120,300]:[200,100,200]);
 }
 $('#sigAck').onclick=()=>{$('#signal').classList.add('hide');sound.stop()};
 $('#mute').onclick=()=>sound.toggle();
