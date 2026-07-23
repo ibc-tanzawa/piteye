@@ -54,9 +54,24 @@ label{display:block;font-size:11px;letter-spacing:.12em;color:var(--dim);margin:
 #cal .val{font-variant-numeric:tabular-nums;color:var(--txt)}
 
 /* 起動画面 */
-#launch{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:24px;max-width:460px;margin:0 auto;width:100%}
+#launch{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;
+  padding:24px;max-width:460px;margin:0 auto;width:100%;
+  overflow-y:auto;-webkit-overflow-scrolling:touch}
 #launch h1{font-size:34px;letter-spacing:.22em;margin:0 0 4px}
 #launch p{color:var(--dim);margin:0;font-size:13px;line-height:1.6}
+/* 横画面：左に説明と役割、右にルームコードとQRを並べて高さを抑える */
+@media (orientation:landscape){
+  #launch{max-width:920px;display:grid;grid-template-columns:1fr 1fr;
+    gap:10px 30px;align-content:safe center;padding:16px 24px}
+  #launch h1{font-size:24px;margin:0 0 2px}
+  #launch p{font-size:12px;line-height:1.5}
+  #launch>*:nth-child(1),#launch>*:nth-child(2),#launch>*:nth-child(4){grid-column:1}
+  #launch>*:nth-child(3){grid-column:2;grid-row:1/4;align-self:start}
+  #launch .roles{margin-top:2px}
+  #launch #qrBox{margin-top:8px}
+  #launch #qr{width:96px;height:96px;padding:6px}
+  #launch #qrBox p{font-size:11px;margin-top:6px}
+}
 .roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
 .roles button{padding:22px 10px;font-size:15px;font-weight:700;letter-spacing:.1em}
 .roles button[aria-pressed="true"]{border-color:var(--live);color:var(--live)}
