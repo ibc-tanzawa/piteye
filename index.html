@@ -360,7 +360,7 @@ function onMotion(e){
     const sx=inc[0]*cs-inc[1]*sn;    // 端末座標→画面x（横）
     const sy=inc[0]*sn+inc[1]*cs;    // 端末座標→画面y（縦）
     S.lat=( sx-S.demoOfs[0])/9.80665;
-    S.lon=(-sy+S.demoOfs[1])/9.80665;   // 前後反転修正：手前を下げると減速(-)
+    S.lon=( sy-S.demoOfs[1])/9.80665;   // 前後：手前を下げると加速(+)
     const t=performance.now();smooth(S.lat,S.lon,t);
     S.trail.push([t,S.sLat,S.sLon]);
     while(S.trail.length&&t-S.trail[0][0]>3000)S.trail.shift();
